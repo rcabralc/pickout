@@ -314,7 +314,7 @@ class Menu(QObject):
         self._debug = debug
         self._mode_state = ModeState(insert_mode, self.input)
         self._cache = inccache.Cache(self._all_entries, refilter,
-                                     (elect.ExactPattern, elect.FuzzyPattern))
+                                     (elect.FuzzyPattern,))
 
     @property
     def input(self):

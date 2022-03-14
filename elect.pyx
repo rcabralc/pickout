@@ -81,42 +81,6 @@ class SmartCasePattern(Pattern):
             self.ignore_case = True
 
 
-class ExactPattern(SmartCasePattern):
-    prefix = '@='
-
-    def match(self, entry):
-        if not self.length:
-            return Match(0, ())
-
-        value = entry.value
-        if self.ignore_case:
-            value = value.lower()
-
-        if self.value not in value:
-            return
-
-        indices = []
-
-        current = value.find(self.value)
-        for index in range(current, current + self.length):
-            indices.append(index)
-
-        return Match(indices[len(indices) - 1] - indices[0], tuple(indices))
-
-    def __contains__(self, other):
-        if self.length == 0:
-            return True
-
-        if ((isinstance(other, type(self)) and other.length > 0) or
-            (isinstance(other, FuzzyPattern) and other.length == 1)):
-            if not self.ignore_case and other.ignore_case:
-                return False
-            return other.value in self.value
-
-        # TODO: fix for other types
-        return False
-
-
 cdef class FuzzyPattern:
     cdef public str value
     cdef public int length
@@ -164,17 +128,11 @@ cdef class FuzzyPattern:
         if self.length == 0:
             return True
 
-        if isinstance(other, ExactPattern):
-            if not self.ignore_case and other.ignore_case:
-                return False
-            return other.value in self.value
-
         if isinstance(other, type(self)):
             if not self.ignore_case and other.ignore_case:
                 return False
             return other.match(Entry(0, self.value)) is not None
 
-        # TODO: fix for other types
         return False
 
     # Fuzzy matching largely inspired by fzy.
@@ -283,23 +241,6 @@ cdef class FuzzyPattern:
         return Match(v_length - match_score, tuple(indices[:p_length]))
 
 
-class InverseExactPattern(ExactPattern):
-    prefix = '@!'
-
-    def match(self, entry):
-        if not self.length:
-            return Match(0, ())
-
-        value = entry.value
-        if self.ignore_case:
-            value = value.lower()
-
-        if self.value in value:
-            return
-
-        return Match(0, ())
-
-
 class RegexPattern(Pattern):
     prefix = '@/'
 
@@ -328,6 +269,9 @@ class RegexPattern(Pattern):
             return Match(len(match_range), indices)
 
         return
+
+    def __contains__(self, _other):
+        return False
 
 
 cdef class CompositePattern:
@@ -498,8 +442,6 @@ class Filter:
         patternTypes = (
             FuzzyPattern,
             RegexPattern,
-            ExactPattern,
-            InverseExactPattern,
         )
         if isinstance(pattern, Pattern) or isinstance(pattern, FuzzyPattern):
             return pattern

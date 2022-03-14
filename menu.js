@@ -130,10 +130,7 @@
     var self,
         _$el,
         currentMode,
-        // This order is important: iterated from right to left, no ambiguity
-        // should happen.  An item should not start with any item on right of
-        // it.
-        patternTypes = ['@*', '@/', '@=', '@!'];
+        patternTypes = ['@*', '@/'];
 
     $(window).on('focus', function() { $el().focus(); });
 
