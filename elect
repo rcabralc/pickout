@@ -1,0 +1,131 @@
+#!/usr/bin/env python
+"""Elect.
+
+Usage:
+    elect [options] PATTERNS ...
+
+Filter lines from standard input according to one or more patterns, and print
+them to standard output.
+
+Results are sorted by length of matched portion (sum for more than one
+pattern), followed by length of item, followed by its order in the input lines.
+
+Depending on the given options, the output may or may not be printed as the
+input is read.  If sorting is being done (the default) or some limit is
+imposed, then the input will be fully read before processing candidates takes
+place.  So, to use this as a stream filter, disable sorting, don't apply a
+limit and don't reverse the order of the candidates.
+
+Arguments:
+    PATTERNS   The pattern strings (there can be multiple ones).
+
+Options:
+    -l LIMIT, --limit=LIMIT
+        Limit output up to LIMIT results.  Makes input to be fully read before
+        processing.
+
+    -r, --reverse
+        Reverse the returning order of candidates.  Makes input to be fully
+        read before processing.
+
+        This is applied after sorting and limiting is done, so this affects
+        only the output of the items, not the sorting itself.  If no sorting or
+        limiting is done, all candidates are returned in the reversed order of
+        input.
+
+    --ignore-bad-patterns
+        If a regular expression pattern is not valid, silently ignore it.
+
+    --output-json
+        Print lines as JSON objects.
+
+        Each line is a JSON object representing the result of a matching entry
+        in the input, containing the following properties:
+
+        value   The raw entry.
+
+        id      The id associated with the entry.
+
+        partitions
+                An array of JSON objects, with properties "unmatched" and
+                "matched".  By concatenating these properties in this order,
+                and concatenating the result of doing the same for each element
+                in order, the entry (the value property) is recovered.
+
+        rank    An array of three elements representing the quality of the
+                match.  Lower numbers are better.  The first number is the sum
+                of extents of matched portions of the string of all patterns,
+                and the second is the length of the entry.
+
+    --no-color
+        Turn off colored output.
+
+    -h, --help
+        Show this.
+
+Patterns:
+    The interpretation of the pattern is done according to its initial
+    characters (which is not part of the pattern):
+
+        @*                  Fuzzy match
+        @/                  Regular expression
+        @=                  Exact match
+        @!                  Exact inverse match
+        <anything else>     Fuzzy match
+"""
+
+from docopt import docopt
+from json import dumps as dumpjson
+
+import elect
+import sys
+
+
+def build_line(result, highlight=True):
+    if not highlight:
+        return result.entry.value
+
+    line = []
+
+    def colored(string):
+        return "\x1b[1m\x1b[31m%s\x1b[22m\x1b[39m" % string
+
+    line.append("\x1b[22m\x1b[39m")
+
+    for partition in result.partitions:
+        line.append(partition['unmatched'])
+        line.append(colored(partition['matched']))
+
+    return ''.join(line)
+
+
+def main():
+    args = docopt(__doc__)
+
+    patterns = args['PATTERNS']
+    limit = args['--limit']
+    reverse = args['--reverse']
+    ignore_bad_patterns = args['--ignore-bad-patterns']
+    options = {}
+
+    if limit is not False and limit is not None:
+        limit = int(limit)
+
+    strip = str.strip
+    entries = (strip(line) for line in iter(sys.stdin.readline, ''))
+    entries = (elect.Entry(i, c) for i, c in enumerate(entries, start=1) if c)
+    matches = elect.Filter(entries, *patterns,
+                           ignore_bad_patterns=ignore_bad_patterns)
+
+    for match in elect.Ranking(matches, limit=limit, reverse=reverse):
+        if args['--output-json']:
+            line = dumpjson(match.asdict())
+        else:
+            line = build_line(match, highlight=not args['--no-color'])
+        print(line)
+
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
