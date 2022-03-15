@@ -20,7 +20,8 @@ class Cache:
 
     def _find(self, key):
         hits = [hit for k, hit in self._cache.items() if key in k]
-        if not hits: return
+        if not hits:
+            return
         return min(hits, key=lambda hit: hit.weight)
 
 
@@ -43,7 +44,8 @@ class _Key:
                    for pattern in other._patterns)
 
     def __eq__(self, other):
-        return hasattr(other, '_patterns') and self._patterns == other._patterns
+        return (hasattr(other, '_patterns') and
+                self._patterns == other._patterns)
 
     def __hash__(self):
         return hash(self._patterns)

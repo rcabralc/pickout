@@ -19,7 +19,6 @@ from PyQt5.QtCore import QThread, QObject, pyqtSignal
 
 import daemon
 import json
-import multiprocessing
 import os
 import socket
 import sys
@@ -51,14 +50,16 @@ class PromptCommand:
 
     @classmethod
     def desserialize(cls, header, io):
-        if header != 'PROMPT': return
+        if header != 'PROMPT':
+            return
         options = json.loads(io.readline().strip('\n'))
         return cls(options)
 
     def _fetch_items(self, conn):
         while True:
             item = conn.readline().strip('\n')
-            if not item: break
+            if not item:
+                break
             yield item
 
 
@@ -192,12 +193,14 @@ def main(args):
 class nulllogger:
     def write(self, *args):
         pass
+
     def close(self):
         pass
 
 
 def make_logger(stream=None):
-    if stream: return stream
+    if stream:
+        return stream
     return nulllogger()
 
 

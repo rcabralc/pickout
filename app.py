@@ -7,7 +7,6 @@ from itertools import takewhile, zip_longest
 import cache
 import elect
 import json
-import multiprocessing
 import os
 import re
 import sys
@@ -91,8 +90,8 @@ class Completion:
 
     def _suffixes_for_completion(self, entries, input):
         sw = str.startswith
-        l = len(input)
-        return (t.value[l:] for t in entries if sw(t.value, input))
+        size = len(input)
+        return (t.value[size:] for t in entries if sw(t.value, input))
 
     def _suffixes_until_next_sep(self, values, sep):
         find = str.find
@@ -304,7 +303,8 @@ class Menu(QObject):
             sorted_matches = list(elect.Ranking(matches, limit=self._limit))
             return (matches, sorted_matches)
 
-        self._all_entries = [Entry(i, c) for i, c in enumerate(items) if keep(c)]
+        self._all_entries = [Entry(i, c)
+                             for i, c in enumerate(items) if keep(c)]
         self._history = History.build(self._history_path, history_key)
         self._total_items = len(self._all_entries)
         self._limit = limit
@@ -492,7 +492,8 @@ def interpolate_html(template, palette):
     theme = default_colors(palette)
 
     for key, value in theme.items():
-        template = re.sub(f'--{key}: [^;]*;', f'--{key}: {value};', template, 1)
+        template = re.sub(f'--{key}: [^;]*;', f'--{key}: {value};',
+                          template, 1)
     return template.replace('%(initial-value)s', '')
 
 

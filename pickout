@@ -183,7 +183,8 @@ def runner(daemonize=False):
 
 
 def kill_daemon():
-    if not os.path.exists(daemon_socket_file): return
+    if not os.path.exists(daemon_socket_file):
+        return
 
     try:
         sock = get_daemon_socket()
