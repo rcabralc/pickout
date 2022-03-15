@@ -135,6 +135,9 @@ cdef class FuzzyPattern:
 
         return False
 
+    def __repr__(self):
+        return f'<FuzzyPattern {self.value!r}>'
+
     # Fuzzy matching largely inspired by fzy.
     # https://github.com/jhawthorn/fzy
     # Using different weights for matching and a different strategy for
@@ -257,6 +260,12 @@ class RegexPattern(Pattern):
                     raise
                 self._can_match = False
 
+    def __contains__(self, _other):
+        return False
+
+    def __repr__(self):
+        return f'<RegexPattern {self.value!r}>'
+
     def match(self, entry):
         if not self._can_match:
             return Match(0, ())
@@ -269,9 +278,6 @@ class RegexPattern(Pattern):
             return Match(len(match_range), indices)
 
         return
-
-    def __contains__(self, _other):
-        return False
 
 
 cdef class CompositePattern:

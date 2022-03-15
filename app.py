@@ -4,8 +4,8 @@ from PyQt5.QtWebKitWidgets import QWebView
 from PyQt5.QtWidgets import QApplication
 from itertools import takewhile, zip_longest
 
+import cache
 import elect
-import inccache
 import json
 import multiprocessing
 import os
@@ -313,8 +313,7 @@ class Menu(QObject):
         self._accept_input = accept_input
         self._debug = debug
         self._mode_state = ModeState(insert_mode, self.input)
-        self._cache = inccache.Cache(self._all_entries, refilter,
-                                     (elect.FuzzyPattern,))
+        self._cache = cache.Cache(self._all_entries, refilter)
 
     @property
     def input(self):
