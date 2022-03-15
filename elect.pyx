@@ -131,7 +131,7 @@ cdef class FuzzyPattern:
         if isinstance(other, type(self)):
             if not self.ignore_case and other.ignore_case:
                 return False
-            return other.match(Entry(0, self.value)) is not None
+            return self.match(Entry(0, other.value)) is not None
 
         return False
 
