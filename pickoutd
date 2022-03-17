@@ -13,7 +13,7 @@ Options:
     -h, --help     Show this.
 """
 
-from app import MenuApp
+from app import App
 from docopt import docopt
 from PyQt5.QtCore import QThread, QObject, pyqtSignal
 
@@ -160,7 +160,7 @@ class Channel(QObject):
 
 
 def run(logger):
-    app = MenuApp()
+    app = App()
 
     with Channel(socket_file, logger=logger) as channel:
         channel_thread = QThread()
