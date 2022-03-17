@@ -1,11 +1,9 @@
-from PyQt5.QtCore import QObject, pyqtSlot, pyqtSignal
 from itertools import takewhile, zip_longest
 
 import cache
 import json
 import elect
 import os
-import sys
 
 
 MAX_HISTORY_ENTRIES = 100
@@ -13,14 +11,8 @@ MAX_HISTORY_ENTRIES = 100
 Entry = elect.Entry
 
 
-class Menu(QObject):
-    filtered = pyqtSignal()
-    selected = pyqtSignal(int)
-    accepted = pyqtSignal(list)
-    mode_changed = pyqtSignal()
-    input_changed = pyqtSignal(str)
-
-    _filtered_count = _total_items = _index = 0
+class Menu:
+    _filtered_count = _index = 0
     _input = None
     _results = []
     _history_path = os.path.join(os.path.dirname(__file__), 'history.json')
@@ -34,9 +26,7 @@ class Menu(QObject):
                  accept_input=False,
                  keep_empty_items=False,
                  filter_pool=None,
-                 debug=False):
-        super(Menu, self).__init__()
-
+                 handlers={}):
         def keep(item):
             return keep_empty_items or item.strip()
 
@@ -48,14 +38,13 @@ class Menu(QObject):
         self._all_entries = [Entry(i, c)
                              for i, c in enumerate(items) if keep(c)]
         self._history = History.build(self._history_path, history_key)
-        self._total_items = len(self._all_entries)
         self._limit = limit
         self._completion_sep = sep
         self._word_delimiters = delimiters
         self._accept_input = accept_input
-        self._debug = debug
         self._mode_state = ModeState(insert_mode, self.input)
         self._cache = cache.Cache(self._all_entries, refilter)
+        self._handlers = handlers
 
     @property
     def input(self):
@@ -68,7 +57,7 @@ class Menu(QObject):
             self._input = value
             self._results, self._filtered_count = self._filter(value)
             self._index = max(0, min(self._index, len(self._results) - 1))
-            self.filtered.emit()
+            self._emit('filtered')
 
     @property
     def results(self):
@@ -84,88 +73,75 @@ class Menu(QObject):
 
     @property
     def total_items(self):
-        return self._total_items
+        return len(self._all_entries)
 
     @property
     def mode_state(self):
         return self._mode_state
 
-    @pyqtSlot(str)
-    def log(self, message):
-        sys.stderr.write(message + "\n")
-        sys.stderr.flush()
+    def filter(self, input):
+        self.input = input
+        self._set_to_insert()
 
-    @pyqtSlot(str, bool)
-    def filter(self, input, complete):
-        if complete:
-            self.input = self._complete(input)
-            if input != self.input:
-                self.input_changed.emit(self.input)
-        else:
-            self.input = input
+    def complete(self, input):
+        self.input = self._complete(input)
+        self._emit('input_changed')
+        self._set_to_insert()
 
-        self._mode_state = self._mode_state.switch(insert_mode, self.input)
-        self.mode_changed.emit()
-        self._history.go_to_end()
-
-    @pyqtSlot()
-    def acceptSelected(self):
+    def accept_selected(self):
         selected = self._get_selected()
         if selected:
             self._history.add(self.input)
-            self.accepted.emit([selected])
+            self._emit('finished', [selected])
 
-    @pyqtSlot()
-    def acceptInput(self):
+    def accept_input(self):
         if self._accept_input:
             self._history.add(self.input)
-            self.accepted.emit([Entry(None, self.input)])
+            self._emit('finished', [Entry(-1, self.input)])
 
-    @pyqtSlot()
-    def inputSelected(self):
+    def filter_with_selected(self):
         selected = self._get_selected()
-        if self.input != selected.value:
+        if selected is not None:
             self.input = selected.value
-            self.input_changed.emit(self.input)
+            self._emit('input_changed')
 
-    @pyqtSlot()
-    def next(self):
+    def select_next(self):
         self._index = min(self._index + 1, len(self.results) - 1)
-        self.selected.emit(self._index)
+        self._emit('selected')
 
-    @pyqtSlot()
-    def prev(self):
+    def select_prev(self):
         self._index = max(self._index - 1, 0)
-        self.selected.emit(self._index)
+        self._emit('selected')
 
-    @pyqtSlot(result=str)
-    def historyNext(self):
+    def select_next_from_history(self):
         self._mode_state = self._mode_state.switch(history_mode, self.input)
-        self.mode_changed.emit()
+        self._emit('mode_changed')
         entry = self._history.next(self._mode_state.input)
         if entry is not None and entry != self.input:
             self.input = entry
-            self.input_changed.emit(self.input)
+            self._emit('input_changed')
 
-    @pyqtSlot(result=str)
-    def historyPrev(self):
+    def select_prev_from_history(self):
         self._mode_state = self._mode_state.switch(history_mode, self.input)
-        self.mode_changed.emit()
+        self._emit('mode_changed')
         entry = self._history.prev(self._mode_state.input)
         if entry is not None and entry != self.input:
             self.input = entry
-            self.input_changed.emit(self.input)
+            self._emit('input_changed')
 
-    @pyqtSlot()
-    def dismiss(self):
-        self.accepted.emit([])
-
-    @pyqtSlot(result=str)
-    def wordDelimiters(self):
+    def get_word_delimiters(self):
         delimiters = [' ']
         if self._word_delimiters:
             delimiters.extend(self._word_delimiters)
         return ''.join(delimiters)
+
+    def dismiss(self):
+        self._emit('finished', [])
+
+    def _set_to_insert(self):
+        self._mode_state = self._mode_state.switch(insert_mode, self.input)
+        self._emit('mode_changed')
+        self._history.go_to_end()
 
     def _filter(self, input):
         patterns = parse_patterns(input)
@@ -182,6 +158,11 @@ class Menu(QObject):
         items = self.results
         if items:
             return items[min(self._index, len(items) - 1)].entry
+
+    def _emit(self, event_name, *args):
+        handler = self._handlers.get(event_name)
+        if handler is not None:
+            handler(*args)
 
 
 class History:

@@ -1,4 +1,4 @@
-from PyQt5.QtCore import QObject, pyqtSignal, Qt
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt
 from PyQt5.QtGui import QPalette
 from PyQt5.QtWebKitWidgets import QWebView
 from PyQt5.QtWidgets import QApplication
@@ -14,46 +14,108 @@ import sys
 Entry = elect.Entry
 
 
-class Frontend:
+class JsBridge(QObject):
+    finished = pyqtSignal(list)
+
     _view = _frame = None
 
     def __init__(self, view, frame):
+        super(JsBridge, self).__init__()
         self._view = view
         self._frame = frame
+        self.setParent(view)
 
-    def plug(self, app, items, filter_pool, **kw):
+    @pyqtSlot(str)
+    def log(self, message):
+        sys.stderr.write(message + "\n")
+        sys.stderr.flush()
+
+    @pyqtSlot(str, bool)
+    def filter(self, input, complete):
+        if complete:
+            self._menu.complete(input)
+        else:
+            self._menu.filter(input)
+
+    @pyqtSlot()
+    def acceptSelected(self):
+        self._menu.accept_selected()
+
+    @pyqtSlot()
+    def acceptInput(self):
+        self._menu.accept_input()
+
+    @pyqtSlot()
+    def inputSelected(self):
+        self._menu.filter_with_selected()
+
+    @pyqtSlot()
+    def next(self):
+        self._menu.select_next()
+
+    @pyqtSlot()
+    def prev(self):
+        self._menu.select_prev()
+
+    @pyqtSlot()
+    def historyNext(self):
+        self._menu.select_next_from_history()
+
+    @pyqtSlot()
+    def historyPrev(self):
+        self._menu.select_prev_from_history()
+
+    @pyqtSlot()
+    def dismiss(self):
+        self._menu.dismiss()
+
+    @pyqtSlot(result=str)
+    def wordDelimiters(self):
+        return self._menu.get_word_delimiters()
+
+    def plug(self, app, items, filter_pool, debug=False, **kw):
         title = kw.pop('title', None)
         input = kw.pop('input', '')
-        self._menu = Menu(items, filter_pool=filter_pool, **kw)
-        self._menu.setParent(self._view)
-        self._menu.filtered.connect(self.update)
-        self._menu.selected.connect(self.select)
-        self._menu.mode_changed.connect(self.update_mode)
-        self._menu.input_changed.connect(self.set_input)
-        self._frame.addToJavaScriptWindowObject('backend', self._menu)
+        self._menu = Menu(
+            items,
+            filter_pool=filter_pool,
+            handlers=dict(
+                filtered=self.update,
+                selected=self.select,
+                input_changed=lambda: self.set_input(self._menu.input),
+                mode_changed=self.update_mode,
+                finished=lambda selected: self.finished.emit(selected)
+            ),
+            **kw
+        )
+        self._frame.addToJavaScriptWindowObject('backend', self)
         self.set_input(input)
         self._view.restore(title=title)
         self._menu.input = input
-        return self._menu
+        return self
 
     def unplug(self):
         self._evaluate('window.backend = null')
-        self._menu.setParent(None)
         self._menu = None
         self._view.hide()
 
-    def set_input(self, input):
-        self._evaluate("frontend.setInput(%s)" % json.dumps(input))
-
-    def select(self, index):
-        self._evaluate('frontend.select(%d)' % index)
+    def select(self):
+        self._evaluate('frontend.select(%d)' % self._menu.index)
 
     def update(self):
         self._update_counters()
         self._show_items()
 
+    def set_input(self, input):
+        self._evaluate("frontend.setInput(%s)" % json.dumps(input))
+
     def update_mode(self):
         self._report_mode()
+
+    def _update_counters(self):
+        filtered = self._menu.filtered_count
+        total = self._menu.total_items
+        self._evaluate("frontend.updateCounters(%d, %d)" % (filtered, total))
 
     def _show_items(self):
         items = [dict(data=item.entry.data, partitions=item.partitions)
@@ -67,11 +129,6 @@ class Frontend:
             self._evaluate("frontend.overLimit()")
         else:
             self._evaluate("frontend.underLimit()")
-
-    def _update_counters(self):
-        filtered = self._menu.filtered_count
-        total = self._menu.total_items
-        self._evaluate("frontend.updateCounters(%d, %d)" % (filtered, total))
 
     def _report_mode(self):
         mode = self._menu.mode_state.mode
@@ -137,7 +194,7 @@ def interpolate_html(template, palette):
 
 
 class App(QObject):
-    finished = pyqtSignal()
+    finished = pyqtSignal(list)
 
     def __init__(self, title=None, filter_pool=None):
         super(App, self).__init__()
@@ -161,20 +218,20 @@ class App(QObject):
         frame.evaluateJavaScript(self._jquery_source)
         frame.evaluateJavaScript(self._frontend_source)
 
-        self._frontend = Frontend(view, frame)
+        self._js_bridge = JsBridge(view, frame)
 
     def setup(self, items, **kw):
-        return self._frontend.plug(self.app, items, self._filter_pool, **kw)
+        self._js_bridge.plug(self.app, items, self._filter_pool, **kw)
+        self._js_bridge.finished.connect(self.finished.emit)
+        return self
 
     def hide(self):
-        self._frontend.unplug()
+        self._js_bridge.unplug()
 
     def exec_(self):
         self.app.exec_()
-        return self.finished.emit()
 
     def quit(self):
-        self.finished.emit()
         return self.app.quit()
 
 
@@ -188,7 +245,7 @@ class AsJSONEncoder(json.JSONEncoder):
 def run(items, json_output=False, **kw):
     app = App()
 
-    def accepted(selected):
+    def finished(selected):
         if json_output:
             print(json.dumps(selected, cls=AsJSONEncoder))
         else:
@@ -196,5 +253,5 @@ def run(items, json_output=False, **kw):
                 print(entry.value)
         app.quit()
 
-    app.setup(items, **kw).accepted.connect(accepted)
+    app.setup(items, **kw).finished.connect(finished)
     return app.exec_()

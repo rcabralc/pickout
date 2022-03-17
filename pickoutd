@@ -43,9 +43,10 @@ class PromptCommand:
                     conn.writeline(entry.value)
             conn.close()
             app.hide()
+            app.finished.disconnect(done)
         try:
-            menu = app.setup(self._fetch_items(conn), **self._options)
-            menu.accepted.connect(done)
+            app.setup(self._fetch_items(conn), **self._options)
+            app.finished.connect(done)
         except:
             conn.close()
             raise
