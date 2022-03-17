@@ -13,7 +13,7 @@ Options:
     -h, --help     Show this.
 """
 
-from app import App
+from app import App, AsJSONEncoder
 from docopt import docopt
 from PyQt5.QtCore import QThread, QObject, pyqtSignal
 
@@ -28,14 +28,19 @@ socket_file = '/tmp/pickout.sock'
 
 
 class PromptCommand:
-    def __init__(self, options):
+    def __init__(self, json_output=False, **options):
+        self._json_output = json_output
         self._options = options
 
     def execute(self, app, conn, logger):
-        def done(result):
-            if result:
-                logger.write(f'result: {result}\n')
-                conn.writeline(result)
+        def done(selected):
+            result = [entry.value for entry in selected]
+            logger.write(f'result: {result!r}\n')
+            if self._json_output:
+                conn.writeline(json.dumps(selected, cls=AsJSONEncoder))
+            else:
+                for entry in selected:
+                    conn.writeline(entry.value)
             conn.close()
             app.hide()
         try:
@@ -53,7 +58,7 @@ class PromptCommand:
         if header != 'PROMPT':
             return
         options = json.loads(io.readline().strip('\n'))
-        return cls(options)
+        return cls(**options)
 
     def _fetch_items(self, conn):
         while True:

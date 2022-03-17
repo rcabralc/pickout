@@ -16,7 +16,7 @@ Entry = elect.Entry
 class Menu(QObject):
     filtered = pyqtSignal()
     selected = pyqtSignal(int)
-    accepted = pyqtSignal(str)
+    accepted = pyqtSignal(list)
     mode_changed = pyqtSignal()
     input_changed = pyqtSignal(str)
 
@@ -113,19 +113,19 @@ class Menu(QObject):
         selected = self._get_selected()
         if selected:
             self._history.add(self.input)
-            self.accepted.emit(selected)
+            self.accepted.emit([selected])
 
     @pyqtSlot()
     def acceptInput(self):
         if self._accept_input:
             self._history.add(self.input)
-            self.accepted.emit(self.input)
+            self.accepted.emit([Entry(None, self.input)])
 
     @pyqtSlot()
     def inputSelected(self):
         selected = self._get_selected()
-        if self.input != selected:
-            self.input = selected
+        if self.input != selected.value:
+            self.input = selected.value
             self.input_changed.emit(self.input)
 
     @pyqtSlot()
@@ -158,7 +158,7 @@ class Menu(QObject):
 
     @pyqtSlot()
     def dismiss(self):
-        self.accepted.emit('')
+        self.accepted.emit([])
 
     @pyqtSlot(result=str)
     def wordDelimiters(self):
@@ -181,8 +181,7 @@ class Menu(QObject):
     def _get_selected(self):
         items = self.results
         if items:
-            return items[min(self._index, len(items) - 1)].entry.value
-        return ''
+            return items[min(self._index, len(items) - 1)].entry
 
 
 class History:

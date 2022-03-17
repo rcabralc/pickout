@@ -41,6 +41,9 @@ Options:
     -i, --input INPUT
         Use INPUT as a initial value.
 
+    --json-output
+        Return the selection as a JSON array.
+
     --keep-empty-lines
         Don't filter out empty lines from input.
 
@@ -111,6 +114,7 @@ def main(args):
 
     limit = args['--limit']
     limit = int(limit) if limit and int(limit) >= 0 else None
+    json_output = args['--json-output']
 
     fn = runner(daemonize=args['--daemonize'])
 
@@ -123,6 +127,7 @@ def main(args):
         history_key=args['--history-key'],
         accept_input=args['--accept-input'],
         keep_empty_items=args['--keep-empty-lines'],
+        json_output=json_output,
         title=args['--title'],
         debug=args['--debug']
     )

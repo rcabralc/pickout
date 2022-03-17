@@ -321,7 +321,7 @@ cdef class Entry:
         self.length = len(value)
         self.data = data
 
-    cdef asdict(self):
+    def as_json(self):
         return dict(id=self.id, value=self.value, data=self.data)
 
 
@@ -344,9 +344,8 @@ cdef class CompositeMatch:
         self.rank = (sum(m.rank for m in matches), len(entry.value), entry.id)
         self._matches = matches
 
-    def asdict(self):
-        return dict(rank=self.rank, partitions=self.partitions,
-                    **self.entry.asdict())
+    def as_json(self):
+        return dict(rank=self.rank, partitions=self.partitions, entry=self.entry)
 
     @property
     def partitions(self):

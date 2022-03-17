@@ -56,10 +56,13 @@ class Frontend:
         self._report_mode()
 
     def _show_items(self):
-        items = [item.asdict() for item in self._menu.results]
+        items = [dict(data=item.entry.data, partitions=item.partitions)
+                 for item in self._menu.results]
         if items:
             items[self._menu.index]['selected'] = True
-        self._evaluate("frontend.setItems(%s)" % json.dumps(items))
+        self._evaluate(
+            "frontend.setItems(%s)" % json.dumps(items, cls=AsJSONEncoder)
+        )
         if self._menu.filtered_count > len(items):
             self._evaluate("frontend.overLimit()")
         else:
@@ -175,9 +178,23 @@ class App(QObject):
         return self.app.quit()
 
 
-def run(items, **kw):
+class AsJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if hasattr(o, 'as_json'):
+            return o.as_json() if callable(o.as_json) else o.as_json
+        return super(AsJSONEncoder, self).default(o)
+
+
+def run(items, json_output=False, **kw):
     app = App()
-    accepted = app.setup(items, **kw).accepted
-    accepted.connect(lambda r: print(r) if r else None)
-    accepted.connect(lambda _: app.quit())
+
+    def accepted(selected):
+        if json_output:
+            print(json.dumps(selected, cls=AsJSONEncoder))
+        else:
+            for entry in selected:
+                print(entry.value)
+        app.quit()
+
+    app.setup(items, **kw).accepted.connect(accepted)
     return app.exec_()
