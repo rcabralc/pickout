@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""Pickout a file from a directory using pickout and rg.
+
+Usage:
+    pickout-file [--accept-input]
+                 [--app-name=<name>]
+                 [--hidden]
+                 [--glob=<pattern>]...
+                 [--path=<path>]
+                 [--no-center]
+                 [--no-ignore]
+                 [--title=<title>]
+                 [<dir>]
+
+Arguments:
+    <dir>
+        The directory in which the files are recursively listed for picking.
+        By default, the current working directory.
+
+Options:
+    --accept-input
+    --app-name <name>
+    --no-center
+    --title <title>
+        Options passed down to pickout.
+
+        If no --title is given, "Select file from <dir>" is set.
+
+    --hidden
+    -g <pattern>, --glob <pattern> ...
+    --no-ignore
+        Options passed down to rg(1).
+
+    --path <path>
+        A reference directory that will be used to generate pickout --input and
+        leverage ignored paths given through --glob option.
+
+        If any exclusion glob (see --glob and rg(1) --glob option) would
+        exclude the directory referenced by --path, the glob is ignored.
+        Otherwise, if --path is under a Git repository, pickout --input will be
+        the root of the repository.
+
+        If --path is an absolute path, it will be transformed into a relative
+        path (relative from <dir>) before being passed to pickout as --input.
+
+    -h, --help
+        Show this.
+
+Description:
+    pickout-file will use rg(1) with --files option to collect files for
+    pickout.
+
+    The directory used to start searching for files is <dir>.  It's possible
+    control which directories or files to include or exclude from search by
+    using multiple --glob options (see rg(1) for details).
+
+    A directory can be picked from the menu if entered explicitly, which is
+    allowed if --accept-input is used, or selected, starting a new search
+    using the picked directory as the starting point.
+
+    Note that `..` can be entered to access the parent directory on unixes.
+"""
+
+from docopt import docopt
+from shutil import which
+from subprocess import DEVNULL, PIPE, Popen, run
+
+import json
+import os
+import pathspec
+import sys
+
+
+pickout_default_args = [
+    '--completion-sep', os.path.sep,
+    '--limit', '20',
+    '--loop',
+    '--word-delimiters', os.path.sep
+]
+rg_default_args = [which('rg'), '--files', '--follow']
+sed = which('sed')
+encoding = 'utf-8'
+
+
+def main(args):
+    original_globs = args['--glob']
+    path = args['--path'] or os.curdir
+    root = os.path.abspath(args['<dir>'] or os.curdir)
+    initial_root = root = '/' + root.lstrip(os.path.sep)
+    path = os.path.relpath(path, root)
+
+    # Prevent --path from not matching anything by skipping any exclusion glob
+    # that would exclude it.
+    globs = [g for g in original_globs if not glob_excludes(g, path)]
+
+    if len(globs) == len(original_globs):
+        isgit = run(
+            ['git', '-C', path, 'rev-parse', '--show-toplevel'],
+            capture_output=True
+        )
+        if isgit.returncode == 0:
+            path = isgit.stdout.decode('utf-8')
+
+    if path == '.':
+        path = ''
+    else:
+        path += os.path.sep
+
+    pickout = Popen(
+        pickout_args(
+            accept_input=args['--accept-input'],
+            app_name=args.get('--app-name'),
+            center=not args['--no-center'],
+            input=path,
+            history_key=f'file:{root}',
+            title=args['--title'] or f'Select file from {root}'
+        ),
+        bufsize=0,
+        stdin=PIPE,
+        stdout=PIPE,
+        stderr=sys.stderr
+    )
+
+    with pickout:
+        while True:
+            rg_opts = dict(
+                hidden=args['--hidden'],
+                globs=globs,
+                no_ignore=args['--no-ignore']
+            )
+
+            choice, choice_in_results = choose(
+                root,
+                pickout,
+                rg_opts,
+                add_pardir=root != initial_root
+            )
+
+            if not choice:
+                break
+
+            choice = choice.decode(encoding).strip(os.linesep)
+            path = os.path.normpath(os.path.join(root, choice))
+
+            if not os.path.isdir(path):
+                print(path)
+                break
+
+            if choice_in_results:
+                root = initial_root
+                path = os.path.relpath(path, root) + os.path.sep
+                if (path == os.curdir + os.path.sep or
+                        path == os.pardir + os.path.sep):
+                    path = ''
+            else:
+                root = path
+                path = ''
+
+            globs = original_globs
+            pickout_opts = json.dumps(dict(
+                accept_input=args['--accept-input'],
+                history_key=f'file:{root}',
+                input=path,
+                title=args['--title'] or f'Select file from {root}'
+            ))
+            pickout.stdin.write((pickout_opts + '\n').encode(encoding))
+            pickout.stdin.flush()
+
+        pickout.terminate()
+
+
+def glob_excludes(glob, path):
+    return globs_exclude([glob], path)
+
+
+def globs_exclude(globs, path):
+    exclusion_globs = [g[1:] for g in globs if g.startswith('!')]
+    spec = pathspec.PathSpec.from_lines('gitwildmatch', exclusion_globs)
+    return spec.match_file(path)
+
+
+def pickout_args(accept_input=False,
+                 app_name=None,
+                 center=True,
+                 input='',
+                 history_key=None,
+                 title=''):
+    args = ['pickout', *pickout_default_args]
+    if accept_input:
+        args.append('--accept-input')
+    if app_name:
+        args.extend(['--app-name', app_name])
+    if history_key:
+        args.extend(['--history-key', history_key])
+    if not center:
+        args.extend(['--no-center'])
+    args.extend(['--input', input, '--title', title])
+    return args
+
+
+def choose(root, pickout, rg_opts, add_pardir=True):
+    rg = Popen(rg_args(**rg_opts), cwd=root, stderr=DEVNULL, stdout=PIPE)
+    linesep = os.linesep.encode(encoding)
+
+    if add_pardir:
+        # If the parent directory is not root, offer the option to access it.
+        if len(root.split(os.path.sep)) > 2:
+            pardir = os.pardir.encode(encoding) + linesep
+            pickout.stdin.write(pardir)
+
+    results = []
+    for line in rg.stdout:
+        results.append(line)
+        pickout.stdin.write(line)
+    pickout.stdin.write(linesep)
+
+    with rg:
+        pass
+
+    choice = ''
+    for line in pickout.stdout:
+        if (line := line.strip()):
+            choice = line
+            continue
+        break
+    return choice, choice in results
+
+
+def rg_args(hidden=False, no_ignore=False, globs=[]):
+    args = [*rg_default_args]
+    if hidden:
+        args.append('--hidden')
+    if no_ignore:
+        args.append('--no-ignore')
+    for glob in globs:
+        args.extend(['--glob', glob])
+    return args
+
+
+if __name__ == '__main__':
+    sys.exit(main(docopt(__doc__)))
