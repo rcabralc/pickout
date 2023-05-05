@@ -28,9 +28,11 @@ class JsBridge(QObject):
     update = pyqtSignal([int, int, list])
 
     menu = None
+    is_ready = False
 
     @pyqtSlot()
     def js_ready(self):
+        self.is_ready = True
         self.ready.emit()
 
     @pyqtSlot(str, bool)
@@ -156,8 +158,6 @@ class App(QObject):
     finished = pyqtSignal()
     loop_finished = pyqtSignal()
 
-    _ready = False
-
     def __init__(self, app_name='pickout', filter_pool=None, logger=None):
         super(App, self).__init__()
         self.app = QApplication(sys.argv)
@@ -224,10 +224,9 @@ class App(QObject):
 
         def init_menu_single_shot():
             self._bridge.ready.disconnect(init_menu_single_shot)
-            self._ready = True
             init_menu()
 
-        if self._ready:
+        if self._bridge.is_ready:
             init_menu()
         else:
             self._bridge.ready.connect(init_menu_single_shot)
