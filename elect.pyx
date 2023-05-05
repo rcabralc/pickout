@@ -10,6 +10,7 @@
 
 #cython: language_level=3
 
+import array
 import heapq
 import operator
 import re
@@ -17,7 +18,8 @@ import sre_constants
 import sys
 import unicodedata
 
-from cython.view cimport array as carray
+from cython.view cimport array as cvarray
+from cpython cimport array
 from itertools import chain
 from libc.string cimport memset
 
@@ -26,25 +28,61 @@ from libc.string cimport memset
 cdef int MIN_SCORE = -2**31 + 1 # make room for subtracting 1 without overflow
 cdef int CONSECUTIVE_SCORE = 50
 cdef int WORD_START_SCORE = 10
-cdef int PATTERN_GLOBAL_MAX_LENGTH = 128 # p_length
-cdef int ENTRY_GLOBAL_MAX_LENGTH = 128 # v_length
-# m[X, Y, Z] stores the matching results
-# X = 0:1, 0 = best score, 1 = score if ending in the position
-# Y = 0:p_length-1, Z = 0:v_length-1 is the matrix of scores
-# in X=0, Z = v_length the first match index is stored for later
-# backtracking.
-# in X=1, Z = v_length, the best score index is stored, useful to jump
-# to the best score when starting backtracking.
-cdef int[:,:,:] GLOBAL_m = carray(
-    shape=(2, PATTERN_GLOBAL_MAX_LENGTH, ENTRY_GLOBAL_MAX_LENGTH + 1),
-    itemsize=sizeof(int),
-    format='i'
-)
-cdef int[::1] GLOBAL_indices = carray(
-    shape=(PATTERN_GLOBAL_MAX_LENGTH,),
-    itemsize=sizeof(int),
-    format='i'
-)
+cdef int PATTERN_GLOBAL_MAX_LENGTH = 64
+cdef int ENTRY_GLOBAL_MAX_LENGTH = 256
+cdef array.array empty = array.array('i', [])
+cdef int [::1] cempty = empty
+cdef enum CharType: word_start, regular
+
+
+cdef int [:,:,:] create_fuzzy_search_data(int p_length, int v_length):
+    return cvarray(shape=(2, p_length, v_length + 1),
+                   itemsize=sizeof(int),
+                   format='i')
+cdef int [:,:,:] GLOBAL_M = create_fuzzy_search_data(PATTERN_GLOBAL_MAX_LENGTH,
+                                                     ENTRY_GLOBAL_MAX_LENGTH)
+
+
+cdef class Entry:
+    cdef public int index
+    cdef public str id
+    cdef public str value
+    cdef public str civalue
+    cdef public int length
+    cdef public int[::1] char_types
+    cdef dict _data
+
+    def __init__(self, int index, str value not None, str id = None, dict data = None):
+        cdef int i, l
+
+        self.index = index
+        value = unicodedata.normalize('NFKD', value)
+        self.value = value
+        self.id = id if id is not None else value
+        self.civalue = value if value.islower() else value.lower()
+        self.length = l = len(value)
+        self._data = data
+        if l:
+            self.char_types = cvarray(shape=(l,),
+                                      itemsize=sizeof(int),
+                                      format='i')
+            for i in range(l):
+                if (
+                    # word delimiters
+                    i == 0 or value[i - 1] in '*._-/{[( ' or
+                    # uppercase following lowercase, like 'w' in 'thisWord'
+                    (value[i].isupper() and value[i - 1].islower())
+                ):
+                    self.char_types[i] = word_start
+                else:
+                    self.char_types[i] = regular
+
+    @property
+    def data(self):
+        return self._data if self._data is not None else {}
+
+    def as_json(self):
+        return dict(id=self.id, value=self.value, data=self.data)
 
 
 class Pattern:
@@ -73,8 +111,7 @@ class SmartCasePattern(Pattern):
 
         pattern_lower = self.value.lower()
 
-        if pattern_lower != pattern:
-            self.value = pattern
+        if pattern_lower != self.value:
             self.ignore_case = False
         else:
             self.value = pattern_lower
@@ -85,19 +122,19 @@ cdef class FuzzyPattern:
     cdef public str value
     cdef public int length
     cdef public bint ignore_case
-    cdef bint use_global_m
 
     prefix = '@*'
 
     def __init__(self, str pattern):
         cdef str pattern_lower
+        cdef int p_length
 
         value = unicodedata.normalize('NFKD', pattern)
 
         if value:
-            self.length = len(value)
+            p_length = self.length = len(value)
         else:
-            self.length = 0
+            p_length = self.length = 0
 
         pattern_lower = value.lower()
 
@@ -107,8 +144,6 @@ cdef class FuzzyPattern:
         else:
             self.value = pattern_lower
             self.ignore_case = True
-
-        self.use_global_m = self.length <= PATTERN_GLOBAL_MAX_LENGTH
 
     def __eq__(self, other):
         if isinstance(other, type(self)):
@@ -141,33 +176,35 @@ cdef class FuzzyPattern:
     # Fuzzy matching largely inspired by fzy.
     # https://github.com/jhawthorn/fzy
     # Using different weights for matching and a different strategy for
-    # backtracking.
-    cpdef Match match(self, Entry entry):
+    # backtracing.
+    cdef Match match(self, Entry entry, int [:,:,:] m=None):
         cdef int p_length = self.length
+        cdef Match match
 
         if p_length == 0:
-            return Match(0, ())
+            return Match.empty()
 
         cdef int v_length = entry.length
         cdef int r_limit = v_length - p_length + 1
         cdef int l_limit = 0
         cdef int pi, vi, prev_vi, score, best_score = MIN_SCORE, best_idx
-        cdef int prev_score, last_match_score, match_score
-        cdef str value, pattern, original_value
+        cdef int prev_score, match_score
+        cdef str value, pattern
         cdef Py_UCS4 p
-        cdef int[:,:,:] m
         cdef int[::1] indices
 
-        original_value = entry.value
-        value = entry.civalue if self.ignore_case else original_value
+        value = entry.civalue if self.ignore_case else entry.value
         pattern = self.value
 
-        if self.use_global_m and v_length <= ENTRY_GLOBAL_MAX_LENGTH:
-            m = GLOBAL_m
-        else:
-            m = carray(shape=(2, p_length, v_length + 1),
-                       itemsize=sizeof(int),
-                       format='i')
+        # m[X, Y, Z] stores the matching results
+        # X = 0:1, 0 = best score, 1 = score if ending in the position
+        # Y = 0:p_length-1, Z = 0:v_length-1 is the matrix of scores
+        # in X=0, Z = v_length the first match index is stored for later
+        # backtracing.
+        # in X=1, Z = v_length, the best score index is stored, useful to jump
+        # to the best score when starting backtracing.
+        if m is None:
+            m = create_fuzzy_search_data(p_length, v_length)
 
         for pi in range(p_length):
             p = pattern[pi]
@@ -178,21 +215,14 @@ cdef class FuzzyPattern:
                     # Record start index and bump l_limit.
                     if best_score == MIN_SCORE:
                         m[0, pi, v_length] = l_limit = vi
-                    if (
-                        # word delimiters
-                        vi == 0 or value[prev_vi] in '*._-/{[( ' or
-                        # uppercase following lowercase, like 'w' in 'thisWord'
-                        (original_value[vi].isupper() and
-                         original_value[prev_vi].islower())
-                    ):
+                    if entry.char_types[vi] == CharType.word_start:
                         score = WORD_START_SCORE
                     else:
                         score = 1
                     if pi != 0:
-                        last_match_score = m[1, pi - 1, prev_vi]
                         score += m[0, pi - 1, prev_vi]
-                        if last_match_score + CONSECUTIVE_SCORE > score:
-                            score = last_match_score + CONSECUTIVE_SCORE
+                        if m[1, pi - 1, prev_vi] + CONSECUTIVE_SCORE > score:
+                            score = m[1, pi - 1, prev_vi] + CONSECUTIVE_SCORE
                 else:
                     if best_score == MIN_SCORE: continue
                     score = MIN_SCORE
@@ -211,20 +241,16 @@ cdef class FuzzyPattern:
             l_limit += 1
 
         match_score = best_score
-        if self.use_global_m:
-            indices = GLOBAL_indices
-        else:
-            indices = carray(shape=(p_length,), itemsize=sizeof(int), format='i')
+        indices = cvarray(shape=(p_length,), itemsize=sizeof(int), format='i')
         memset(&indices[0], 0, p_length * sizeof(int))
         best_idx = m[1, p_length - 1, v_length]
         indices[p_length - 1] = best_idx
         for pi in range(p_length - 2, -1, -1):
-            p = pattern[pi]
             vi = best_idx - 1
             # Prefer to show a consecutive match if the score ending here is
             # the same as if it were not a match.  The final resulting score
             # would have been the same.
-            if p == value[vi] and m[1, pi, vi] == m[0, pi, vi]:
+            if m[1, pi, vi] == m[0, pi, vi] and pattern[pi] == value[vi]:
                 indices[pi] = best_idx = vi
                 continue
             # Look for the best index, stop looking if score starts decreasing.
@@ -241,7 +267,7 @@ cdef class FuzzyPattern:
             indices[pi] = best_idx
 
         # Match takes a rank for its first argument.  The lower the better.
-        return Match(v_length - match_score, tuple(indices[:p_length]))
+        return Match.present(v_length - match_score, indices)
 
 
 class RegexPattern(Pattern):
@@ -266,72 +292,79 @@ class RegexPattern(Pattern):
     def __repr__(self):
         return f'<RegexPattern {self.value!r}>'
 
-    def match(self, entry):
+    def match(self, entry, **_kw):
         if not self._can_match:
-            return Match(0, ())
+            return Match.empty()
 
         value = entry.value
         match = self._re.search(value)
         if match is not None:
-            match_range = range(*match.span())
-            indices = tuple(match_range)
-            return Match(len(match_range), indices)
-
-        return
+            min, max = match.span()
+            length = max - min
+            indices = cvarray(shape=(length,), itemsize=sizeof(int), format='i')
+            for i, mi in enumerate(range(min, max)):
+                indices[i] = mi
+            return Match.present(length, indices)
 
 
 cdef class CompositePattern:
     cdef list _patterns
 
-    def __init__(self, patterns):
+    def __cinit__(self, patterns):
         self._patterns = patterns
 
-    cdef CompositeMatch match(self, Entry entry):
+    cdef CompositeMatch match(self, Entry entry, int [:,:,:] global_m=None):
         cdef Match match
         cdef FuzzyPattern fuzzy_pattern
         cdef list matches = []
+        cdef list patterns = self._patterns
+        cdef int i
+        cdef int [:,:,:] pattern_m
 
-        for pattern in self._patterns:
+        if entry.length > ENTRY_GLOBAL_MAX_LENGTH:
+            global_m = None
+
+        for i in range(len(patterns)):
+            pattern = patterns[i]
+
+            if pattern.length > PATTERN_GLOBAL_MAX_LENGTH:
+                pattern_m = None
+            else:
+                pattern_m = global_m
+
             if isinstance(pattern, FuzzyPattern):
                 fuzzy_pattern = pattern
-                match = fuzzy_pattern.match(entry)
+                match = fuzzy_pattern.match(entry, m=pattern_m)
             else:
-                match = pattern.match(entry)
+                match = pattern.match(entry, m=pattern_m)
 
             if match is None:
                 return
 
             matches.append(match)
 
-        return CompositeMatch(entry, matches)
-
-
-cdef class Entry:
-    cdef public int id
-    cdef public str value
-    cdef public str civalue
-    cdef public int length
-    cdef public dict data
-
-    def __init__(self, int id, str value not None, dict data = {}):
-        self.id = id
-        value = unicodedata.normalize('NFKD', value)
-        self.value = value
-        self.civalue = value.lower()
-        self.length = len(value)
-        self.data = data
-
-    def as_json(self):
-        return dict(id=self.id, value=self.value, data=self.data)
+        return CompositeMatch.c(entry, matches)
 
 
 cdef class Match:
     cdef public int rank
-    cdef public tuple indices
+    cdef public int[::1] indices
 
-    def __init__(self, int rank, tuple indices not None):
-        self.rank = rank
-        self.indices = indices
+    @staticmethod
+    cdef Match empty():
+        cdef Match match
+        match = Match.__new__(Match)
+        match.rank = 0
+        match.indices = cempty
+        return match
+
+    @staticmethod
+    cdef Match present(int rank, int [::1] indices):
+        cdef Match match
+        match = Match.__new__(Match)
+        match.rank = rank
+        match.indices = indices
+        return match
 
 
 cdef class CompositeMatch:
@@ -339,10 +372,14 @@ cdef class CompositeMatch:
     cdef public tuple rank
     cdef list _matches
 
-    def __init__(self, Entry entry not None, list matches not None):
-        self.entry = entry
-        self.rank = (sum(m.rank for m in matches), len(entry.value), entry.id)
-        self._matches = matches
+    @staticmethod
+    cdef c(Entry entry, list matches):
+        cdef CompositeMatch match = CompositeMatch.__new__(CompositeMatch)
+        match.entry = entry
+        match.rank = (sum(m.rank for m in matches), len(entry.value),
+                      entry.value)
+        match._matches = matches
+        return match
 
     def as_json(self):
         return dict(rank=self.rank, partitions=self.partitions, entry=self.entry)
@@ -353,62 +390,54 @@ cdef class CompositeMatch:
 
     def _partitions(self, list matches not None):
         cdef Match first_match
-        cdef list indices
+        cdef set indices
         cdef int length = len(matches)
 
         if length == 0:
             return [dict(unmatched=self.entry.value, matched='')]
 
         if length == 1:
-            chunks = Chunks(matches[0].indices)
-        else:
-            first_match, *other_matches = matches
-            indices = list(first_match.indices)
-            for match in other_matches:
-                indices.extend(match.indices)
-            chunks = Chunks(tuple(sorted(set(indices))))
-        return [dict(unmatched=unmatched, matched=matched)
-                for unmatched, matched in chunks.items(self.entry.value)]
+            return list(Chunks.c(matches[0].indices, self.entry))
+
+        first_match, *other_matches = matches
+        indices = set(first_match.indices)
+        for match in other_matches:
+            indices.update(match.indices)
+        return list(Chunks.c(array.array('i', sorted(indices)), self.entry))
 
 
 cdef class Chunks:
-    cdef list _chunks
+    cdef int [::1] _indices
+    cdef str _value
 
-    def __cinit__(self, tuple indices not None):
-        cdef int head
-        cdef tuple tail
-        cdef list chunks, chunk
-        cdef int i
+    @staticmethod
+    cdef c(int [::1] indices, Entry entry):
+        cdef Chunks chunks = Chunks.__new__(Chunks)
+        chunks._indices = indices
+        chunks._value = entry.value
+        return chunks
 
-        if len(indices):
-            head = indices[0]
-            tail = indices[1:]
-            chunk = [head, head + 1]
-            chunks = [chunk]
-            for i in range(len(tail)):
-                t = tail[i]
-                if t != chunk[1]:
-                    chunk = [t, t + 1]
-                    chunks.append(chunk)
-                else:
-                    chunk[1] = t + 1
-            self._chunks = chunks
-        else:
-            self._chunks = None
+    def __iter__(self):
+        cdef int i = 0
+        cdef int last_end = 0
+        cdef int [::1] indices = self._indices
+        cdef str value = self._value
+        cdef str unmatched
+        cdef str matched
+        cdef int len_indices = len(indices)
 
-    def items(self, str value not None):
-        cdef int last_end = 0, i
-        cdef list slice
-
-        if self._chunks is not None:
-            for i in range(len(self._chunks)):
-                slice = self._chunks[i]
-                yield value[last_end:slice[0]], value[slice[0]:slice[1]]
-                last_end = slice[1]
-
-        remainder = value[last_end:]
-        if remainder:
-            yield remainder, ''
+        if len_indices:
+            while i < len_indices:
+                t = indices[i]
+                unmatched = value[last_end:t]
+                while i + 1 < len_indices and indices[i + 1] == indices[i] + 1:
+                    i += 1
+                last_end = indices[i] + 1
+                matched = value[t:last_end]
+                yield dict(unmatched=unmatched, matched=matched)
+                i += 1
+        if last_end < len(value):
+            yield dict(unmatched=value[last_end:], matched='')
 
 
 class Filter:
@@ -422,25 +451,17 @@ class Filter:
         self.pool = pool
 
     def __iter__(self):
-        if self.pool:
-            entries = list(self._entries)
-            batches = []
-            size = len(entries) / 4
-            for n in range(3):
-                batches.append([entries[n * size:(n + 1) * size], self._pattern])
-            batches.append([entries[3 * size:], self._pattern])
-            results = [batch for batch in batches if batch[0]]
-            return chain(*self.pool.map(_filter, results))
-        return iter(self._get_matches())
+        if not self.pool:
+            return iter(_get_matches(self._entries, self._pattern))
 
-    def _get_matches(self):
-        cdef Entry entry
-        cdef CompositeMatch match
-        cdef CompositePattern p = self._pattern
-        for entry in self._entries:
-            match = p.match(entry)
-            if match is not None:
-                yield match
+        entries = list(self._entries)
+        batches = []
+        size = len(entries) // 4
+        for n in range(3):
+            batches.append([entries[n * size:(n + 1) * size], self._pattern])
+        batches.append([entries[3 * size:], self._pattern])
+        results = [batch for batch in batches if batch[0]]
+        return chain(*self.pool.map(_filter, results))
 
     @classmethod
     def build_pattern(self, pattern, ignore_bad_patterns=True):
@@ -476,13 +497,18 @@ class Ranking:
 
 
 def _filter(job):
-    cdef list entries = job[0]
+    cdef tuple entries = job[0]
     cdef CompositePattern pattern = job[1]
+    cdef int [:,:,:] m = create_fuzzy_search_data(PATTERN_GLOBAL_MAX_LENGTH,
+                                                  ENTRY_GLOBAL_MAX_LENGTH)
+    return tuple(_get_matches(entries, pattern, global_m=m))
+
+
+def _get_matches(entries, CompositePattern pattern not None,
+                 int [:,:,:] global_m=GLOBAL_M):
     cdef Entry entry
     cdef CompositeMatch match
-    cdef list matches = []
     for entry in entries:
-        match = pattern.match(entry)
+        match = pattern.match(entry, global_m=global_m)
         if match is not None:
-            matches.append(match)
-    return matches
+            yield match

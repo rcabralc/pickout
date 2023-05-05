@@ -1,4 +1,4 @@
-from itertools import takewhile, zip_longest
+from itertools import tee
 
 import cache
 import json
@@ -11,123 +11,123 @@ MAX_HISTORY_ENTRIES = 100
 Entry = elect.Entry
 
 
+class nulllogger:
+    def write(self, *args):
+        pass
+
+    def close(self):
+        pass
+
+
 class Menu:
-    _filtered_count = _index = 0
+    _filtered_count = __index = 0
     _input = None
     _results = []
     _history_path = os.path.join(os.path.dirname(__file__), 'history.json')
 
     def __init__(self,
                  items,
+                 logger=None,
                  limit=None,
                  sep=None,
                  history_key=None,
                  delimiters=[],
                  accept_input=False,
-                 keep_empty_items=False,
                  filter_pool=None,
-                 handlers={}):
-        def keep(item):
-            return keep_empty_items or item.strip()
-
+                 bridge=None,
+                 picked=None):
         def refilter(patterns, entries):
-            matches = list(elect.Filter(entries, *patterns, pool=filter_pool))
-            sorted_matches = list(elect.Ranking(matches, limit=self._limit))
-            return (matches, sorted_matches)
+            matches, to_sort = tee(
+                elect.Filter(entries, *patterns, pool=filter_pool),
+                2
+            )
+            sorted_matches = tuple(elect.Ranking(to_sort, limit=self._limit))
+            return (tuple(m.entry for m in matches), sorted_matches)
 
-        self._all_entries = [Entry(i, c)
-                             for i, c in enumerate(items) if keep(c)]
+        all_entries = tuple(Entry(i, c) for i, c in enumerate(items))
+        self._total_items = len(all_entries)
         self._history = History.build(self._history_path, history_key)
         self._limit = limit
         self._completion_sep = sep
         self._word_delimiters = delimiters
         self._accept_input = accept_input
-        self._mode_state = ModeState(insert_mode, self.input)
-        self._cache = cache.Cache(self._all_entries, refilter)
-        self._handlers = handlers
+        self._mode_state = ModeState(insert_mode, self._input)
+        self._cache = cache.Cache(all_entries, refilter)
+        self._bridge = bridge or NullBridge()
+        self._picked = picked or NullSignal()
+        self._logger = logger or nulllogger()
 
-    @property
-    def input(self):
-        return self._input or ''
-
-    @input.setter
-    def input(self, value):
+    def set_input(self, value):
         value = value or ''
         if self._input != value:
             self._input = value
             self._results, self._filtered_count = self._filter(value)
-            self._index = max(0, min(self._index, len(self._results) - 1))
-            self._emit('filtered')
+            self._index = self.__index
 
-    @property
-    def results(self):
-        return self._results
+            filtered = self._filtered_count
+            total = self._total_items
+            items = [dict(data=item.entry.data, partitions=item.partitions)
+                     for item in self._results]
 
-    @property
-    def index(self):
-        return self._index
+            if items:
+                items[self._index]['selected'] = True
 
-    @property
-    def filtered_count(self):
-        return self._filtered_count
-
-    @property
-    def total_items(self):
-        return len(self._all_entries)
-
-    @property
-    def mode_state(self):
-        return self._mode_state
+            self._bridge.update.emit(filtered, total, items)
 
     def filter(self, input):
-        self.input = input
+        self.set_input(input)
         self._set_to_insert()
 
     def complete(self, input):
-        self.input = self._complete(input)
-        self._emit('input_changed')
+        self.set_input(self._complete(input))
+        self._bridge.input.emit(self._input)
         self._set_to_insert()
 
     def accept_selected(self):
         selected = self._get_selected()
-        if selected:
-            self._history.add(self.input)
-            self._emit('finished', [selected])
+        if selected is not None:
+            self._history.add(self._input)
+            self._picked.emit([selected])
 
     def accept_input(self):
         if self._accept_input:
-            self._history.add(self.input)
-            self._emit('finished', [Entry(-1, self.input)])
+            self._history.add(self._input)
+            self._picked.emit([Entry(-1, self._input)])
 
     def filter_with_selected(self):
         selected = self._get_selected()
         if selected is not None:
-            self.input = selected.value
-            self._emit('input_changed')
+            self.set_input(selected.value)
+            self._bridge.input.emit(self._input)
+
+    def refresh(self):
+        pass  # TODO: refresh entries
 
     def select_next(self):
-        self._index = min(self._index + 1, len(self.results) - 1)
-        self._emit('selected')
+        self._index += 1
+        self._bridge.index.emit(self._index)
 
     def select_prev(self):
-        self._index = max(self._index - 1, 0)
-        self._emit('selected')
+        self._index -= 1
+        self._bridge.index.emit(self._index)
 
     def select_next_from_history(self):
-        self._mode_state = self._mode_state.switch(history_mode, self.input)
-        self._emit('mode_changed')
+        self._mode_state = self._mode_state.switch(history_mode, self._input)
+        mode = self._mode_state.mode
+        self._bridge.mode.emit(mode.prompt, mode.name)
         entry = self._history.next(self._mode_state.input)
-        if entry is not None and entry != self.input:
-            self.input = entry
-            self._emit('input_changed')
+        if entry is not None and entry != self._input:
+            self.set_input(entry)
+            self._bridge.input.emit(self._input)
 
     def select_prev_from_history(self):
-        self._mode_state = self._mode_state.switch(history_mode, self.input)
-        self._emit('mode_changed')
+        self._mode_state = self._mode_state.switch(history_mode, self._input)
+        mode = self._mode_state.mode
+        self._bridge.mode.emit(mode.prompt, mode.name)
         entry = self._history.prev(self._mode_state.input)
-        if entry is not None and entry != self.input:
-            self.input = entry
-            self._emit('input_changed')
+        if entry is not None and entry != self._input:
+            self.set_input(entry)
+            self._bridge.input.emit(self._input)
 
     def get_word_delimiters(self):
         delimiters = [' ']
@@ -136,33 +136,60 @@ class Menu:
         return ''.join(delimiters)
 
     def dismiss(self):
-        self._emit('finished', [])
+        self._picked.emit([])
+
+    @property
+    def _index(self):
+        return self.__index
+
+    @_index.setter
+    def _index(self, value):
+        self.__index = max(0, min(value, len(self._results) - 1))
 
     def _set_to_insert(self):
-        self._mode_state = self._mode_state.switch(insert_mode, self.input)
-        self._emit('mode_changed')
+        self._mode_state = self._mode_state.switch(insert_mode, self._input)
+        mode = self._mode_state.mode
+        self._bridge.mode.emit(mode.prompt, mode.name)
         self._history.go_to_end()
 
     def _filter(self, input):
         patterns = parse_patterns(input)
-        matches, sorted_matches = self._cache.filter(patterns)
-        return (sorted_matches, len(matches))
+        entries, sorted_matches = self._cache.filter(patterns)
+        return (sorted_matches, len(entries))
 
     def _complete(self, input):
         patterns = parse_patterns(input)
-        matches, _ = self._cache.filter(patterns)
-        return Completion([m.entry for m in matches],
-                          completion_sep=self._completion_sep).get(input)
+        entries, _ = self._cache.filter(patterns)
+        size = len(input)
+        sw = str.startswith
+        candidates = [e.value for e in entries if sw(e.value, input)]
+        candidate = os.path.commonprefix(candidates)
+        sep = self._completion_sep
+        if sep:
+            if (sep_pos := candidate.rfind(sep, size)) != -1:
+                return candidate[:sep_pos + 1]
+            return input
+        return candidate or input
 
     def _get_selected(self):
-        items = self.results
+        items = self._results
         if items:
-            return items[min(self._index, len(items) - 1)].entry
+            return items[self._index].entry
 
-    def _emit(self, event_name, *args):
-        handler = self._handlers.get(event_name)
-        if handler is not None:
-            handler(*args)
+
+class NullSignal:
+    def emit(self, *a, **kw):
+        pass
+
+
+class NullBridge:
+    index = NullSignal()
+    input = NullSignal()
+    prompt = NullSignal()
+    mode = NullSignal()
+
+    def update(self, *a, **kw):
+        pass
 
 
 class History:
@@ -239,43 +266,6 @@ class EmptyHistory:
     def next(self, input): return
     def add(self, _): return
     def go_to_end(self): return
-
-
-class Completion:
-    def __init__(self, entries, completion_sep=None):
-        self._entries = entries
-        self._completion_sep = completion_sep
-
-    def get(self, input):
-        def allsame(chars_at_same_position):
-            return len(set(chars_at_same_position)) == 1
-
-        return input + ''.join(c for c, *_ in takewhile(
-            allsame,
-            zip_longest(*self._candidates_for_completion(input))
-        ))
-
-    def _candidates_for_completion(self, input):
-        default = self._suffixes_for_completion(self._entries, input)
-
-        if not self._completion_sep:
-            return list(default)
-
-        return self._suffixes_until_next_sep(default, self._completion_sep)
-
-    def _suffixes_for_completion(self, entries, input):
-        sw = str.startswith
-        size = len(input)
-        return (t.value[size:] for t in entries if sw(t.value, input))
-
-    def _suffixes_until_next_sep(self, values, sep):
-        find = str.find
-        return {
-            string[:result + 1]
-            for result, string in (
-                (find(string, sep), string) for string in values
-            ) if ~result
-        }
 
 
 class Mode:

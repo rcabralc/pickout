@@ -2,14 +2,31 @@
 """Pickout.
 
 Usage:
-    pickout [options]
+    pickout [--accept-input]
+            [--app-name=<name>]
+            [--completion-sep=<sep>]
+            [--daemonize|--loop]
+            [--debug]
+            [--history-key=<key>]
+            [--input=<input>]
+            [--json-output]
+            [--limit=<limit>]
+            [--no-center]
+            [--title=<title>]
+            [--word-delimiters=<delimiters>]
+    pickout --kill-daemon
 
 Options:
     --accept-input
         Allow any text typed in the search input to be accepted through
         Ctrl-Enter.
 
-    --completion-sep SEP
+    --app-name <name>
+        [default: pickout]
+
+        In X11 this will be added to the WM_CLASS property of the main window.
+
+    --completion-sep <sep>
         Separator used for completion.  Without this, completion works by
         completing longest common match.  This can be used to complete only
         directories in a list of files, for instance: use '/' (or OS path
@@ -28,7 +45,7 @@ Options:
     --debug
         Print additional information to STDERR.
 
-    --history-key KEY
+    --history-key <key>
         A key which must be unique to store/retrieve history.  Any string can
         be used.  History is enabled only if this option is provided and is not
         empty.
@@ -38,27 +55,35 @@ Options:
         directory, it'll remember the previous input, allowing the user to
         reuse it.
 
-    -i, --input INPUT
-        Use INPUT as a initial value.
+    -i <input>, --input <input>
+        Use <input> as a initial value.
 
     --json-output
         Return the selection as a JSON array.
 
-    --keep-empty-lines
-        Don't filter out empty lines from input.
-
     --kill-daemon
-        Kill the daemon if it exists, and exit immediately.  All other options
-        are ignored.
+        Kill the daemon if it exists, and exit immediately.
 
-    -l, --limit LIMIT
-        Limit output up to LIMIT results.  Use a negative number to not limit
+    -l <limit>, --limit <limit>
+        Limit output up to <limit> results.  Use a negative number to not limit
         output.
 
-    --title TITLE
-        Set the window title to TITLE.
+    --loop
+        Don't quit until SIGTERM is received or the menu window is closed, and
+        wait new items on STDIN after printing a selection to STDOUT, in a
+        loop.
 
-    --word-delimiters DELIMITERS
+        Items are read from STDIN until a blank line is read (which is
+        ignored).  A selection is written to STDOUT, followed by a blank line.
+        If no selection is made, a single blank line is printed.
+
+    --no-center
+        Do not move window to the center of the screen.
+
+    --title <title>
+        Set the window title to <title>.
+
+    --word-delimiters <delimiters>
         Delimiters used for words.
 
     -h, --help
@@ -116,26 +141,32 @@ def main(args):
     limit = int(limit) if limit and int(limit) >= 0 else None
     json_output = args['--json-output']
 
-    fn = runner(daemonize=args['--daemonize'])
+    fn = runner(daemonize=args['--daemonize'],
+                loop=args['--loop'],
+                logger=sys.stderr if args['--debug'] else None)
 
     return fn(
-        (line.strip() for line in sys.stdin.readlines()),
+        app_name=args['--app-name'],
         input=args['--input'],
         limit=limit,
+        center=not args['--no-center'],
         sep=args['--completion-sep'],
         delimiters=list((args['--word-delimiters'] or '')),
         history_key=args['--history-key'],
         accept_input=args['--accept-input'],
-        keep_empty_items=args['--keep-empty-lines'],
         json_output=json_output,
-        title=args['--title'],
-        debug=args['--debug']
+        title=args['--title']
     )
 
 
-def non_daemonized_runner():
-    from app import run
-    return run
+def non_daemonized_runner(logger=None, loop=False):
+    from app import run, read_io
+
+    def fn(**kw):
+        entries = read_io(sys.stdin)
+        return run(entries, logger=logger, loop=loop, **kw)
+
+    return fn
 
 
 def spawn_daemon(max_attempts=10):
@@ -164,26 +195,28 @@ def get_daemon_socket():
     raise RuntimeError("could not connect to daemon")
 
 
-def runner(daemonize=False):
+def runner(daemonize=False, logger=None, loop=False):
     if not daemonize:
-        return non_daemonized_runner()
+        return non_daemonized_runner(logger=logger, loop=loop)
 
     sock = get_daemon_socket()
 
-    def fn(items, **kw):
-        sock.sendall(b'PROMPT\n')
-        sock.sendall((json.dumps(kw) + '\n').encode('utf-8'))
-        for item in items:
-            if not item.endswith('\n'):
-                item = item + '\n'
-            sock.sendall(item.encode('utf-8'))
-        sock.sendall(b'\n')
+    def fn(**kw):
+        send = sock.sendall
+        send(b'PROMPT\n')
+        send((json.dumps(kw) + '\n').encode('utf-8'))
+        chunk_size = 1024
+        read = sys.stdin.buffer.read
+        chunk = read(chunk_size)
+        while chunk:
+            send(chunk)
+            chunk = read(chunk_size)
+        send(b'\n\n')
         result = sock.recv(4096)
         if result:
             sys.stdout.write(result.decode('utf-8'))
         sys.stdout.close()
         sock.close()
-        return 0
     return fn
 
 

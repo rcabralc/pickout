@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
 Usage:
-    pickoutd [--foreground] [--keep-stderr]
-    pickoutd --kill
+    pickoutd [--foreground]
 
 Description:
     This program starts a menu as a daemon.
 
 Options:
-    --foreground   Run attached to the terminal (don't daemonize).
-    --keep-stderr  Don't close the stderr stream in the daemon process.
-    -h, --help     Show this.
+    --foreground  Run attached to the terminal (don't daemonize).
+    -h, --help    Show this.
 """
 
 from app import App, AsJSONEncoder
@@ -22,74 +20,82 @@ import json
 import os
 import socket
 import sys
+import time
+import traceback
 
 
 socket_file = '/tmp/pickout.sock'
 
 
 class PromptCommand:
-    def __init__(self, json_output=False, **options):
+    def __init__(self, connection, json_output=False, **options):
+        self._conn = connection
         self._json_output = json_output
         self._options = options
 
-    def execute(self, app, conn, logger):
-        def done(selected):
-            result = [entry.value for entry in selected]
+    def execute(self, app, logger):
+        def done(selection):
+            result = [entry.value for entry in selection]
             logger.write(f'result: {result!r}\n')
             if self._json_output:
-                conn.writeline(json.dumps(selected, cls=AsJSONEncoder))
+                self._conn.writeline(json.dumps(selection, cls=AsJSONEncoder))
             else:
-                for entry in selected:
-                    conn.writeline(entry.value)
-            conn.close()
+                for entry in selection:
+                    self._conn.writeline(entry.value)
+            self._conn.close()
             app.hide()
-            app.finished.disconnect(done)
-        try:
-            app.setup(self._fetch_items(conn), **self._options)
-            app.finished.connect(done)
-        except:
-            conn.close()
-            raise
+            app.picked.disconnect(done)
+
+        app.picked.connect(done)
+        app.setup(self._fetch_items(logger), **self._options)
 
     def __repr__(self):
         return f'PROMPT: {self._options!r}'
 
     @classmethod
-    def desserialize(cls, header, io):
+    def desserialize(cls, channel, header, conn):
         if header != 'PROMPT':
             return
-        options = json.loads(io.readline().strip('\n'))
-        return cls(**options)
+        options = json.loads(conn.readline())
+        return cls(conn, **options)
 
-    def _fetch_items(self, conn):
+    def _fetch_items(self, logger):
+        t = time.time()
+        read = self._conn.readline
+        logger.write('reading items\n')
+        count = 0
         while True:
-            item = conn.readline().strip('\n')
+            item = read()
             if not item:
                 break
+            count += 1
             yield item
+        logger.write('read %d items in %.3fs\n' % (count, time.time() - t))
 
 
 class KillCommand:
-    def execute(self, app, conn, logger):
-        conn.close()
-        app.quit()
+    def __init__(self, channel):
+        self._channel = channel
+
+    def execute(self, app, logger):
+        self._channel.quit()
 
     def __repr__(self):
         return 'KILL'
 
     @classmethod
-    def desserialize(cls, header, io):
-        return cls() if header == 'KILL' else None
+    def desserialize(cls, channel, header, conn):
+        return cls(channel) if header == 'KILL' else None
 
 
 class AppWorker(QObject):
-    def __init__(self, app, logger):
+    def __init__(self, app, logger=None):
         super(AppWorker, self).__init__()
         self._app = app
-        self._logger = logger
+        self._logger = logger or nulllogger()
 
-    def execute(self, command, conn):
-        command.execute(self._app, conn, self._logger)
+    def execute(self, command):
+        command.execute(self._app, self._logger)
 
 
 class LinewiseConnection:
@@ -99,23 +105,21 @@ class LinewiseConnection:
         self._encoding = encoding
         self._rbuffer = b''
 
-    def readline(self, strip=False):
+    def readline(self, chunk_size=1024):
         message = self._rbuffer
-        newline = message.find(self._sep)
+        sep = self._sep
+        lsep = len(sep)
+        newline = message.find(sep)
 
         while not ~newline:
-            chunk = self._conn.recv(4096)
+            chunk = self._conn.recv(chunk_size)
             if not chunk:
                 raise RuntimeError('socket connection broken')
             message += chunk
-            newline = message.find(self._sep)
+            newline = message.find(sep)
 
-        newline += 1
-        self._rbuffer = message[newline:]
-        line = message[:newline]
-        if strip:
-            line = line.strip(self._sep)
-        return line.decode(self._encoding)
+        self._rbuffer = message[newline + lsep:]
+        return message[:newline].decode(self._encoding)
 
     def writeline(self, message):
         message = message.encode(self._encoding)
@@ -125,6 +129,7 @@ class LinewiseConnection:
 
     def close(self):
         self._conn.close()
+        self._conn = None
 
 
 class Channel(QObject):
@@ -136,64 +141,63 @@ class Channel(QObject):
         self._logger = logger
         self._sock = None
 
-    def receive(self):
+    def open(self):
+        if os.path.exists(self._socket_file):
+            raise RuntimeError('Already running')
+
+        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._sock.bind(self._socket_file)
+        self._sock.listen(1)
+        self._logger.write('listening on ' + self._socket_file + '\n')
+
         while True:
             conn, _ = self._sock.accept()
             conn = LinewiseConnection(conn)
-            header = conn.readline(strip=True)
+            header = conn.readline()
             for klass in [KillCommand, PromptCommand]:
-                command = klass.desserialize(header, conn)
+                command = klass.desserialize(self, header, conn)
                 if command is not None:
                     self._logger.write(f'received: {command!r}\n')
                     self.received.emit(command, conn)
                     break
 
-    def __enter__(self):
-        if os.path.exists(self._socket_file):
-            raise RuntimeError('Socket already in use')
-        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._sock.bind(self._socket_file)
-        self._sock.listen(1)
-        self._logger.write('listening on ' + self._socket_file + '\n')
-        return self
-
-    def __exit__(self, type, value, traceback):
-        self._logger.write('exiting\n')
+    def close(self):
         self._logger.close()
-        self._sock.close()
-        os.unlink(self._socket_file)
-        self._sock = None
+        if self._sock:
+            self._sock.close()
+            self._sock = None
+            os.unlink(self._socket_file)
 
-
-def run(logger):
-    app = App()
-
-    with Channel(socket_file, logger=logger) as channel:
-        channel_thread = QThread()
-        channel.moveToThread(channel_thread)
-        channel_thread.started.connect(channel.receive)
-
-        worker = AppWorker(app, logger=logger)
-        channel.received.connect(worker.execute)
-
-        app.finished.connect(channel_thread.exit)
-        channel_thread.start()
-
-        return app.exec_()
+    def quit(self):
+        self.close()
+        raise SystemExit
 
 
 def main(args):
     foreground = args['--foreground']
-    keep_stderr = args['--keep-stderr']
+    stderr = sys.stderr if foreground else None
+    channel = Channel(socket_file, logger=stderr)
+    channel_thread = QThread()
+    channel.moveToThread(channel_thread)
+    channel_thread.started.connect(channel.open)
+    channel_thread.finished.connect(channel.close)
 
-    if keep_stderr:
-        stderr = sys.stderr
-    else:
-        stderr = None
+    def excepthook(type, value, trace):
+        stderr.write(''.join(traceback.format_exception(type, value, trace)))
+        channel.close()
+        os.abort()
 
-    with daemon.DaemonContext(detach_process=not foreground,
-                              stderr=stderr):
-        run(make_logger(stderr))
+    sys.excepthook = excepthook
+
+    app = App(logger=stderr)
+    with daemon.DaemonContext(detach_process=not foreground, stderr=stderr):
+        worker = AppWorker(app, logger=stderr)
+
+        channel.received.connect(worker.execute)
+        app.finished.connect(channel_thread.exit)
+
+        channel_thread.start()
+        app.exec()
 
 
 class nulllogger:
@@ -202,12 +206,6 @@ class nulllogger:
 
     def close(self):
         pass
-
-
-def make_logger(stream=None):
-    if stream:
-        return stream
-    return nulllogger()
 
 
 if __name__ == '__main__':

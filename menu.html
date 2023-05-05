@@ -2,6 +2,7 @@
 <html>
   <head>
     <meta charset="UTF-8" />
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <script type="text/javascript" src="jquery.js"></script>
     <script type="text/javascript" src="menu.js"></script>
 
@@ -14,6 +15,7 @@
         --color: 0,0,0;
         --prompt-color: 0,0,255;
         --prompt-over-limit-color: 192,0,192;
+        --input-background-color: 255,255,255;
         --input-history-color: 0,0,255;
         --entries-alternate-background-color: var(--background-color);
         --entries-selected-color: 255,255,255;
@@ -31,7 +33,6 @@
 
       html {
         background-color: rgb(var(--background-color));
-        font: message-box;
         -webkit-font-feature-settings: "kern" on, "liga" on, "clig" on, "onum" on;
         font-feature-settings: "kern" on, "liga" on, "clig" on, "onum" on;
         font-kerning: normal;
@@ -44,6 +45,7 @@
       }
 
       #prompt-box {
+        background-color: rgb(var(--input-background-color));
         display: table;
         font-size: 20px;
         padding: 0.4375rem 1rem;
@@ -64,6 +66,7 @@
       .input {
         background-color: transparent;
         color: inherit;
+        font: inherit;
         font-size: 100%;
         border: none;
         line-height: 2.5;
@@ -248,7 +251,7 @@
 
     <div id="entries-box">
       <ul id="entries">
-        <li><p>Entry <span class="match">highlight</span>ed</p></li>
+        <!--<li><p>Entry <span class="match">highlight</span>ed</p></li>
         <li class="selected"><p>Other entry <span class="match">highlight</span>ed</p></li>
         <li><p>Normal entry</p></li>
         <li><p>Entry <span class="match">highlight</span>ed</p><p class="subtext">With subtext</p></li>
@@ -315,7 +318,7 @@ AElFTkSuQmCC" /><p>Entry <span class="match">highlight</span>ed</p><p class="sub
         <li><p>Normal entry</p></li>
         <li><p>Normal entry</p></li>
         <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
+        <li><p>Normal entry</p></li>-->
       </ul>
 
       <div id="scrollbar"><div class="track"><div class="thumb"></div></div></div>

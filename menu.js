@@ -1,12 +1,10 @@
-(function(global) {
+;(function (global) {
   "use strict";
 
-  var $ = global.jQuery;
+  const { jQuery: $, QWebChannel, qt } = global
 
-  applyPolyfills();
-
-  const stubbedBackend = global.backend = (function(console) {
-    // Stub backend implementation.  The real one is inject by Qt.
+  const stubbedBridge = global.bridge = (function (console) {
+    // Stub bridge implementation.  The real one is inject by Qt.
 
     return {
       filter: function(text, complete) {
@@ -37,27 +35,24 @@
       next: function() {
         console.log('tell menu to select next item');
       },
+      refresh: function () {
+        console.log('tell menu to refresh entries')
+      },
       dismiss: function() {
         console.log('tell menu to quit');
-      },
-      log: function(msg) {
-        console.log('logged to menu: ' + msg);
-      },
-      wordDelimiters: function() {
-        return [' '];
       }
     };
   })(global.console);
 
-  global.filterKeypressDelay = 50
+  global.filterKeypressDelay = 0
 
   const menu = (function (methods) {
     let filterTimeout
     let filterText
 
-    const forwarded = methods.reduce((backend, method) => {
-      backend[method] = (...args) => global.backend[method](...args)
-      return backend
+    const forwarded = methods.reduce((bridge, method) => {
+      bridge[method] = (...args) => global.bridge[method](...args)
+      return bridge
     }, {})
 
     forwarded.filter = function (text, complete) {
@@ -79,51 +74,51 @@
 
     function filter (text, complete) {
       filterTimeout = null
-      global.backend.filter(text, complete)
+      global.bridge.filter(text, complete)
     }
-  })(Object.keys(stubbedBackend))
+  })(Object.keys(stubbedBridge))
+
+  let wordDelimiters
 
   global.frontend = {
     setInput: function(text) {
       input.overwrite(text);
     },
 
-    setItems: function(items) {
-      entries.set(items);
+    setWordDelimiters: function(delimiters) {
+      wordDelimiters = delimiters.split('')
+    },
+
+    updateMode: function(prompt, name) {
+      $('#prompt-box .prompt').text(prompt)
+      input.setMode(name)
+    },
+
+    update: function (filtered, total, items) {
+      // if (total > 300000) global.filterKeypressDelay = 150
+      // else if (total > 150000) global.filterKeypressDelay = 100
+      // else global.filterKeypressDelay = 0
+
+      $('#prompt-box .counters').text(`${filtered}/${total}`)
+
+      entries.set(items)
 
       if (items.length) {
-        input.markFound();
+        input.markFound()
       } else {
-        input.markNotFound();
+        input.markNotFound()
       }
-    },
 
-    switchPrompt: function(newPrompt) {
-      $('#prompt-box .prompt').text(newPrompt);
-    },
-
-    reportMode: function(newMode) {
-      input.setMode(newMode);
-    },
-
-    overLimit: function() {
-      $('#prompt-box').addClass('over-limit');
-    },
-
-    underLimit: function() {
-      $('#prompt-box').removeClass('over-limit');
-    },
-
-    updateCounters: function(selected, total) {
-      if (total > 150000) global.filterKeypressDelay = 50
-      else global.filterKeypressDelay = 0
-
-      $('#prompt-box .counters').text(selected + '/' + total);
+      if (filtered > items.length) {
+        $('#prompt-box').addClass('over-limit')
+      } else {
+        $('#prompt-box').removeClass('over-limit')
+      }
     },
 
     select: function(index) {
       entries.select(index);
-    },
+    }
   }
 
   const input = (function() {
@@ -147,13 +142,12 @@
       },
       clear: function() { self.set(''); },
       eraseWord: function() {
-        var delimiters = menu.wordDelimiters().split(''),
-            pos = cursor(),
-            backpos = lookBackward(pos, delimiters);
+        var pos = cursor(),
+            backpos = lookBackward(pos, wordDelimiters)
         if (backpos == pos && pos > 0) {
-          backpos = lookBackward(pos - 1, delimiters);
+          backpos = lookBackward(pos - 1, wordDelimiters)
         }
-        replace('', backpos, pos).focus();
+        replace('', backpos, pos)
       },
       alternatePattern: function() {
         var w = wordUnderCursor(), word = w.value, i, pat;
@@ -175,6 +169,8 @@
 
         word = patternTypes[0] + word;
         replace(word, w.start, w.end);
+      },
+      refresh: function() {
       },
       setMode: function(newMode) {
         if (currentMode) {
@@ -335,7 +331,7 @@
 
     function getTotalHeight() {
       return Array.prototype.slice.call(
-        $el().find('> li').map(function(i, el) {
+        $el().find('> li').map(function(_, el) {
           return $(el).outerHeight();
         })
       ).reduce(function(a, b) { return a + b; }, 0);
@@ -371,7 +367,10 @@
     keyDownHandlers['Control-Y'] = function() {
       menu.inputSelected()
     };
-    keyDownHandlers['Control-R'] = input.alternatePattern;
+    keyDownHandlers['Alt-P'] = input.alternatePattern;
+    keyDownHandlers['Control-R'] = function () {
+      menu.refresh()
+    }
 
     input.setup(function($input) {
       $input.focus();
@@ -433,42 +432,17 @@
         default: return String.fromCharCode(code).toUpperCase();
       }
     }
-  });
+  })
 
-  function applyPolyfills() {
-    if (!String.prototype.startsWith) {
-      String.prototype.startsWith = function(searchString, position) {
-        position = position || 0;
-        return this.lastIndexOf(searchString, position) === position;
-      };
-    }
+  new QWebChannel(qt.webChannelTransport, function (channel) {
+    const bridge = global.bridge = channel.objects.bridge
 
-    if (!Array.prototype.includes) {
-      Array.prototype.includes = function(searchElement, fromIndex) {
-        var O = Object(this);
-        var len = parseInt(O.length) || 0;
-        if (len === 0) {
-          return false;
-        }
-        var n = parseInt(fromIndex) || 0;
-        var k;
-        if (n >= 0) {
-          k = n;
-        } else {
-          k = len + n;
-          if (k < 0) {k = 0;}
-        }
-        var currentElement;
-        while (k < len) {
-          currentElement = O[k];
-          if (searchElement === currentElement ||
-              (searchElement !== searchElement && currentElement !== currentElement)) {
-            return true;
-          }
-          k++;
-        }
-        return false;
-      };
-    }
-  }
-})(window);
+    bridge.index.connect(frontend.select)
+    bridge.input.connect(frontend.setInput)
+    bridge.delimiters.connect(frontend.setWordDelimiters)
+    bridge.mode.connect(frontend.updateMode)
+    bridge.update.connect(frontend.update)
+
+    bridge.js_ready()
+  })
+})(window)

@@ -57,12 +57,8 @@ class _Key:
 class _Hit:
     def __init__(self, key, result):
         self.key = key
-        self._matches, _ = self.result = result
-        self.weight = len(self._matches)
-
-    @property
-    def entries(self):
-        return (m.entry for m in self._matches)
+        self.entries, _ = self.result = result
+        self.weight = len(self.entries)
 
     def __repr__(self):
         return f'<_Hit key={self.key!r} weight={self.weight}>'

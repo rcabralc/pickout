@@ -1,159 +1,121 @@
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread, QLoggingCategory
 from PyQt5.QtGui import QPalette
-from PyQt5.QtWebKitWidgets import QWebView
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineSettings
+from PyQt5.QtWebChannel import QWebChannel
 from PyQt5.QtWidgets import QApplication
 from menu import Menu
 
-import elect
 import json
 import os
 import re
 import sys
 
 
-Entry = elect.Entry
+class nulllogger:
+    def write(self, *args):
+        pass
+
+    def close(self):
+        pass
 
 
 class JsBridge(QObject):
-    finished = pyqtSignal(list)
+    ready = pyqtSignal()
+    index = pyqtSignal(int)
+    input = pyqtSignal(str)
+    delimiters = pyqtSignal(str)
+    mode = pyqtSignal([str, str])
+    update = pyqtSignal([int, int, list])
 
-    _view = _frame = None
+    menu = None
 
-    def __init__(self, view, frame):
+    def __init__(self, parent):
         super(JsBridge, self).__init__()
-        self._view = view
-        self._frame = frame
-        self.setParent(view)
+        self.setParent(parent)
 
-    @pyqtSlot(str)
-    def log(self, message):
-        sys.stderr.write(message + "\n")
-        sys.stderr.flush()
+    @pyqtSlot()
+    def js_ready(self):
+        self.ready.emit()
 
     @pyqtSlot(str, bool)
     def filter(self, input, complete):
+        if self.menu is None:
+            return
         if complete:
-            self._menu.complete(input)
+            self.menu.complete(input)
         else:
-            self._menu.filter(input)
+            self.menu.filter(input)
 
     @pyqtSlot()
     def acceptSelected(self):
-        self._menu.accept_selected()
+        if self.menu is not None:
+            self.menu.accept_selected()
 
     @pyqtSlot()
     def acceptInput(self):
-        self._menu.accept_input()
+        if self.menu is not None:
+            self.menu.accept_input()
 
     @pyqtSlot()
     def inputSelected(self):
-        self._menu.filter_with_selected()
+        if self.menu is not None:
+            self.menu.filter_with_selected()
+
+    @pyqtSlot()
+    def refresh(self):
+        if self.menu is not None:
+            self.menu.refresh()
 
     @pyqtSlot()
     def next(self):
-        self._menu.select_next()
+        if self.menu is not None:
+            self.menu.select_next()
 
     @pyqtSlot()
     def prev(self):
-        self._menu.select_prev()
+        if self.menu is not None:
+            self.menu.select_prev()
 
     @pyqtSlot()
     def historyNext(self):
-        self._menu.select_next_from_history()
+        if self.menu is not None:
+            self.menu.select_next_from_history()
 
     @pyqtSlot()
     def historyPrev(self):
-        self._menu.select_prev_from_history()
+        if self.menu is not None:
+            self.menu.select_prev_from_history()
 
     @pyqtSlot()
     def dismiss(self):
-        self._menu.dismiss()
-
-    @pyqtSlot(result=str)
-    def wordDelimiters(self):
-        return self._menu.get_word_delimiters()
-
-    def plug(self, app, items, filter_pool, debug=False, **kw):
-        title = kw.pop('title', None)
-        input = kw.pop('input', '')
-        self._menu = Menu(
-            items,
-            filter_pool=filter_pool,
-            handlers=dict(
-                filtered=self.update,
-                selected=self.select,
-                input_changed=lambda: self.set_input(self._menu.input),
-                mode_changed=self.update_mode,
-                finished=lambda selected: self.finished.emit(selected)
-            ),
-            **kw
-        )
-        self._frame.addToJavaScriptWindowObject('backend', self)
-        self.set_input(input)
-        self._view.restore(title=title)
-        self._menu.input = input
-        return self
-
-    def unplug(self):
-        self._evaluate('window.backend = null')
-        self._menu = None
-        self._view.hide()
-
-    def select(self):
-        self._evaluate('frontend.select(%d)' % self._menu.index)
-
-    def update(self):
-        self._update_counters()
-        self._show_items()
-
-    def set_input(self, input):
-        self._evaluate("frontend.setInput(%s)" % json.dumps(input))
-
-    def update_mode(self):
-        self._report_mode()
-
-    def _update_counters(self):
-        filtered = self._menu.filtered_count
-        total = self._menu.total_items
-        self._evaluate("frontend.updateCounters(%d, %d)" % (filtered, total))
-
-    def _show_items(self):
-        items = [dict(data=item.entry.data, partitions=item.partitions)
-                 for item in self._menu.results]
-        if items:
-            items[self._menu.index]['selected'] = True
-        self._evaluate(
-            "frontend.setItems(%s)" % json.dumps(items, cls=AsJSONEncoder)
-        )
-        if self._menu.filtered_count > len(items):
-            self._evaluate("frontend.overLimit()")
-        else:
-            self._evaluate("frontend.underLimit()")
-
-    def _report_mode(self):
-        mode = self._menu.mode_state.mode
-        self._evaluate("frontend.switchPrompt(%s)" % json.dumps(mode.prompt))
-        self._evaluate("frontend.reportMode(%s)" % json.dumps(mode.name))
-
-    def _evaluate(self, js):
-        self._frame.evaluateJavaScript(js)
+        if self.menu is not None:
+            self.menu.dismiss()
 
 
-class MainView(QWebView):
+class MainView(QWebEngineView):
     def __init__(self, parent=None):
         super(MainView, self).__init__(parent)
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
+        settings = QWebEngineSettings.globalSettings()
+        settings.setFontFamily(
+            QWebEngineSettings.StandardFont,
+            QApplication.font().family()
+        )
 
-    def restore(self, title=None):
-        self.setWindowTitle(title or 'pickout')
+    def setWindowTitle(self, title=None):
+        super(MainView, self).setWindowTitle(title or 'pickout')
+
+    def restore(self, title=None, center=True):
+        self.setWindowTitle(title)
         self.activateWindow()
         self.showNormal()
-        frameGeometry = self.frameGeometry()
-        desktop = QApplication.desktop()
-        screen = desktop.screenNumber(desktop.cursor().pos())
-        centerPoint = desktop.screenGeometry(screen).center()
-        frameGeometry.moveCenter(centerPoint)
-        self.move(frameGeometry.topLeft())
+        if center:
+            frameGeometry = self.frameGeometry()
+            desktop = QApplication.desktop()
+            screen = desktop.screenNumber(desktop.cursor().pos())
+            centerPoint = desktop.screenGeometry(screen).center()
+            frameGeometry.moveCenter(centerPoint)
+            self.move(frameGeometry.topLeft())
 
 
 def default_colors(palette):
@@ -177,8 +139,8 @@ def default_colors(palette):
         "color": color('WindowText'),
         "prompt-color": color('Link'),
         "prompt-over-limit-color": color('LinkVisited'),
+        "input-background-color": color('AlternateBase'),
         "input-history-color": color('Link'),
-        "entries-alternate-background-color": color('AlternateBase'),
         "entries-selected-color": color('HighlightedText'),
         "entries-selected-background-color": color('Highlight'),
     }
@@ -194,12 +156,20 @@ def interpolate_html(template, palette):
 
 
 class App(QObject):
-    finished = pyqtSignal(list)
+    picked = pyqtSignal(list)
+    finished = pyqtSignal()
+    loop_finished = pyqtSignal()
 
-    def __init__(self, title=None, filter_pool=None):
+    _ready = False
+
+    def __init__(self, app_name='pickout', filter_pool=None, logger=None):
         super(App, self).__init__()
         self.app = QApplication(sys.argv)
+        self.app.setApplicationName(app_name)
         self._filter_pool = filter_pool
+        self._logger = logger
+
+        self.app.aboutToQuit.connect(self.finished.emit)
 
         basedir = os.path.dirname(__file__)
 
@@ -212,27 +182,80 @@ class App(QObject):
         with open(os.path.join(basedir, 'menu.js')) as f:
             self._frontend_source = f.read()
 
-        view = MainView()
-        view.setHtml(interpolate_html(self._html, view.palette()))
-        frame = view.page().mainFrame()
-        frame.evaluateJavaScript(self._jquery_source)
-        frame.evaluateJavaScript(self._frontend_source)
+        view = self._view = MainView()
 
-        self._js_bridge = JsBridge(view, frame)
+        channel = QWebChannel()
+        self._bridge = JsBridge(self)
 
-    def setup(self, items, **kw):
-        self._js_bridge.plug(self.app, items, self._filter_pool, **kw)
-        self._js_bridge.finished.connect(self.finished.emit)
-        return self
+        page = view.page()
+        page.setHtml(interpolate_html(self._html, view.palette()))
+        page.setWebChannel(channel)
+
+        def on_load_finished(*_a, **kw):
+            channel.registerObject('bridge', self._bridge)
+            sources = self._jquery_source + self._frontend_source
+            page.runJavaScript(sources)
+
+        view.loadFinished.connect(on_load_finished)
+
+    def setup(self, entries, title=None, center=True, **kw):
+        self._view.restore(title=title, center=center)
+        self._set_menu(entries, **kw)
 
     def hide(self):
-        self._js_bridge.unplug()
+        self._view.hide()
+        self._menu = None
 
-    def exec_(self):
-        self.app.exec_()
+    def reset(self, entries, title=None, **kw):
+        self._view.setWindowTitle(title)
+        self._set_menu(entries, **kw)
+
+    def _set_menu(self, entries, input='', limit=None, **kw):
+        self._menu = Menu(
+            entries,
+            logger=self._logger,
+            filter_pool=self._filter_pool,
+            limit=limit,
+            bridge=self._bridge,
+            picked=self.picked,
+            **kw
+        )
+
+        def init_menu():
+            self._menu.set_input(input)
+            self._bridge.input.emit(input)
+            self._bridge.delimiters.emit(self._menu.get_word_delimiters())
+
+        def init_menu_single_shot():
+            self._bridge.ready.disconnect(init_menu_single_shot)
+            self._ready = True
+            init_menu()
+
+        if self._ready:
+            init_menu()
+        else:
+            self._bridge.ready.connect(init_menu_single_shot)
+
+        self._bridge.menu = self._menu
+
+    def exec(self):
+        self.app.exec()
 
     def quit(self):
-        return self.app.quit()
+        self.app.quit()
+
+
+class RefreshWorker(QObject):
+    def __init__(self, app, options):
+        super(RefreshWorker, self).__init__()
+        self._app = app
+        self._options = options
+
+    def __call__(self):
+        options = json.loads(sys.stdin.readline())
+        self._options.update(options)
+        items = read_io(sys.stdin)
+        self._app.reset(items, **self._options)
 
 
 class AsJSONEncoder(json.JSONEncoder):
@@ -242,16 +265,45 @@ class AsJSONEncoder(json.JSONEncoder):
         return super(AsJSONEncoder, self).default(o)
 
 
-def run(items, json_output=False, **kw):
-    app = App()
+def read_io(io):
+    for line in iter(io.readline, ''):
+        if (line := line.strip()):
+            yield line
+            continue
+        break
 
-    def finished(selected):
+
+def run(items, json_output=False, logger=None, loop=False, **kw):
+    QLoggingCategory.setFilterRules('js.info=true')
+    app_options = dict(logger=logger)
+
+    if 'app_name' in kw:
+        app_options['app_name'] = kw['app_name']
+        del kw['app_name']
+
+    app = App(**app_options)
+
+    def picked(selection):
         if json_output:
-            print(json.dumps(selected, cls=AsJSONEncoder))
+            sys.stdout.write(json.dumps(selection, cls=AsJSONEncoder))
+            sys.stdout.write(os.linesep)
         else:
-            for entry in selected:
-                print(entry.value)
-        app.quit()
+            for entry in selection:
+                sys.stdout.write(entry.value + os.linesep)
+            if loop:
+                sys.stdout.write(os.linesep)
+        sys.stdout.flush()
+        if loop:
+            app.loop_finished.emit()
+        else:
+            app.quit()
 
-    app.setup(items, **kw).finished.connect(finished)
-    return app.exec_()
+    app.picked.connect(picked)
+    app.setup(items, **kw)
+
+    if loop:
+        refresh_worker = RefreshWorker(app, kw)
+        refresh_thread = QThread()
+        refresh_worker.moveToThread(refresh_thread)
+        app.loop_finished.connect(refresh_worker)
+    return app.exec()
