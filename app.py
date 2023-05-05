@@ -29,10 +29,6 @@ class JsBridge(QObject):
 
     menu = None
 
-    def __init__(self, parent):
-        super(JsBridge, self).__init__()
-        self.setParent(parent)
-
     @pyqtSlot()
     def js_ready(self):
         self.ready.emit()
@@ -185,7 +181,7 @@ class App(QObject):
         view = self._view = MainView()
 
         channel = QWebChannel()
-        self._bridge = JsBridge(self)
+        self._bridge = JsBridge()
 
         page = view.page()
         page.setHtml(interpolate_html(self._html, view.palette()))
