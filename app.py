@@ -1,4 +1,4 @@
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread, QLoggingCategory
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread
 from PyQt5.QtGui import QPalette
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineSettings
 from PyQt5.QtWebChannel import QWebChannel
@@ -274,7 +274,6 @@ def read_io(io):
 
 
 def run(items, json_output=False, logger=None, loop=False, **kw):
-    QLoggingCategory.setFilterRules('js.info=true')
     app_options = dict(logger=logger)
 
     if 'app_name' in kw:
