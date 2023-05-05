@@ -5,16 +5,15 @@ Usage:
     pickout [--accept-input]
             [--app-name=<name>]
             [--completion-sep=<sep>]
-            [--daemonize|--loop]
             [--debug]
             [--history-key=<key>]
             [--input=<input>]
             [--json-output]
             [--limit=<limit>]
+            [--loop]
             [--no-center]
             [--title=<title>]
             [--word-delimiters=<delimiters>]
-    pickout --kill-daemon
 
 Options:
     --accept-input
@@ -31,16 +30,6 @@ Options:
         completing longest common match.  This can be used to complete only
         directories in a list of files, for instance: use '/' (or OS path
         separator) for this.
-
-    -d, --daemonize
-        Create a daemon process if none exists, bring its window to the top and
-        connect to it.
-
-        When the daemon outputs an option, that option is written to the
-        standard output of this process, which then exits, leaving the daemon
-        running in background.
-
-        Keeping a daemon in background can improve further startups.
 
     --debug
         Print additional information to STDERR.
@@ -60,9 +49,6 @@ Options:
 
     --json-output
         Return the selection as a JSON array.
-
-    --kill-daemon
-        Kill the daemon if it exists, and exit immediately.
 
     -l <limit>, --limit <limit>
         Limit output up to <limit> results.  Use a negative number to not limit
@@ -119,33 +105,22 @@ Key bindings:
         Copy selected entry to the input box.
 """
 
+from app import run, read_io
 from docopt import docopt
 
 import json
-import os
-import socket
 import sys
-import subprocess
-import time
-
-
-daemon_socket_file = '/tmp/pickout.sock'
-basedir = os.path.dirname(__file__)
 
 
 def main(args):
-    if args['--kill-daemon']:
-        return kill_daemon()
-
     limit = args['--limit']
     limit = int(limit) if limit and int(limit) >= 0 else None
-    json_output = args['--json-output']
+    entries = read_io(sys.stdin)
 
-    fn = runner(daemonize=args['--daemonize'],
-                loop=args['--loop'],
-                logger=sys.stderr if args['--debug'] else None)
-
-    return fn(
+    return run(
+        entries,
+        logger=sys.stderr if args['--debug'] else None,
+        loop=args['--loop'],
         app_name=args['--app-name'],
         input=args['--input'],
         limit=limit,
@@ -154,84 +129,9 @@ def main(args):
         delimiters=list((args['--word-delimiters'] or '')),
         history_key=args['--history-key'],
         accept_input=args['--accept-input'],
-        json_output=json_output,
+        json_output=args['--json-output'],
         title=args['--title']
     )
-
-
-def non_daemonized_runner(logger=None, loop=False):
-    from app import run, read_io
-
-    def fn(**kw):
-        entries = read_io(sys.stdin)
-        return run(entries, logger=logger, loop=loop, **kw)
-
-    return fn
-
-
-def spawn_daemon(max_attempts=10):
-    class Attempt:
-        def get_socket(self):
-            if not os.path.exists(daemon_socket_file):
-                time.sleep(0.5)
-                return
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.connect(daemon_socket_file)
-            return sock
-
-    if not os.path.exists(daemon_socket_file):
-        exe = sys.executable
-        subprocess.call([exe, os.path.join(basedir, 'pickoutd')])
-
-    for i in range(max_attempts):
-        yield Attempt()
-
-
-def get_daemon_socket():
-    for attempt in spawn_daemon():
-        sock = attempt.get_socket()
-        if sock:
-            return sock
-    raise RuntimeError("could not connect to daemon")
-
-
-def runner(daemonize=False, logger=None, loop=False):
-    if not daemonize:
-        return non_daemonized_runner(logger=logger, loop=loop)
-
-    sock = get_daemon_socket()
-
-    def fn(**kw):
-        send = sock.sendall
-        send(b'PROMPT\n')
-        send((json.dumps(kw) + '\n').encode('utf-8'))
-        chunk_size = 1024
-        read = sys.stdin.buffer.read
-        chunk = read(chunk_size)
-        while chunk:
-            send(chunk)
-            chunk = read(chunk_size)
-        send(b'\n\n')
-        result = sock.recv(4096)
-        if result:
-            sys.stdout.write(result.decode('utf-8'))
-        sys.stdout.close()
-        sock.close()
-    return fn
-
-
-def kill_daemon():
-    if not os.path.exists(daemon_socket_file):
-        return
-
-    try:
-        sock = get_daemon_socket()
-    except ConnectionRefusedError:
-        if os.path.exists(daemon_socket_file):
-            os.unlink(daemon_socket_file)
-    else:
-        sock.sendall(b'KILL\n')
-        sock.close()
 
 
 if __name__ == '__main__':
