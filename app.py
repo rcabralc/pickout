@@ -202,7 +202,7 @@ class App(QObject):
         self._view.hide()
         self._menu = None
 
-    def reset(self, entries, title=None, **kw):
+    def reset(self, entries, title=None, center=None, **kw):
         self._view.setWindowTitle(title)
         self._set_menu(entries, **kw)
 
