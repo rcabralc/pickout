@@ -78,7 +78,6 @@ pickout_default_args = [
     '--word-delimiters', os.path.sep
 ]
 rg_default_args = [which('rg'), '--files', '--follow']
-sed = which('sed')
 encoding = 'utf-8'
 
 
