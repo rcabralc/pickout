@@ -219,7 +219,7 @@ def choose(root, pickout, rg_opts, add_pardir=True):
 
     choice = ''
     for line in pickout.stdout:
-        if (line := line.strip()):
+        if (line := line.rstrip()):
             choice = line
             continue
         break

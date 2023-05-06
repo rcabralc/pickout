@@ -262,7 +262,7 @@ class AsJSONEncoder(json.JSONEncoder):
 
 def read_io(io):
     for line in iter(io.readline, ''):
-        if (line := line.strip()):
+        if (line := line.rstrip()):
             yield line
             continue
         break
