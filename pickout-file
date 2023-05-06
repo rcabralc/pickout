@@ -101,7 +101,7 @@ def main(args):
             path = isgit.stdout.decode('utf-8').rstrip()
             path = os.path.relpath(path, root)
 
-    if path == '.':
+    if path == os.curdir:
         path = ''
     else:
         path += os.path.sep
