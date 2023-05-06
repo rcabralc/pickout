@@ -98,7 +98,8 @@ def main(args):
             capture_output=True
         )
         if isgit.returncode == 0:
-            path = isgit.stdout.decode('utf-8')
+            path = isgit.stdout.decode('utf-8').rstrip()
+            path = os.path.relpath(path, root)
 
     if path == '.':
         path = ''
