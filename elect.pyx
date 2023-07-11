@@ -441,27 +441,17 @@ cdef class Chunks:
 
 
 class Filter:
-    def __init__(self, entries, *patterns, ignore_bad_patterns=True, pool=None):
+    def __init__(self, entries, *patterns, ignore_bad_patterns=True):
         patterns = [
             type(self).build_pattern(p, ignore_bad_patterns=ignore_bad_patterns)
             for p in patterns
         ]
         self._entries = entries
         self._pattern = CompositePattern(list(patterns))
-        self.pool = pool
+        self._total_entries = None
 
     def __iter__(self):
-        if not self.pool:
-            return iter(_get_matches(self._entries, self._pattern))
-
-        entries = list(self._entries)
-        batches = []
-        size = len(entries) // 4
-        for n in range(3):
-            batches.append([entries[n * size:(n + 1) * size], self._pattern])
-        batches.append([entries[3 * size:], self._pattern])
-        results = [batch for batch in batches if batch[0]]
-        return chain(*self.pool.map(_filter, results))
+        return iter(self._get_matches(self._entries, self._pattern))
 
     @classmethod
     def build_pattern(self, pattern, ignore_bad_patterns=True):
@@ -479,6 +469,24 @@ class Filter:
                 return patternType(pattern[len(patternType.prefix):])
         return FuzzyPattern(pattern)
 
+    @property
+    def total_entries(self):
+        return self._total_entries
+
+    def _get_matches(self, entries, CompositePattern pattern not None,
+                     int [:,:,:] global_m=GLOBAL_M):
+        cdef Entry entry
+        cdef CompositeMatch match
+        cdef int total = 0
+
+        for entry in entries:
+            match = pattern.match(entry, global_m=global_m)
+            if match is not None:
+                yield match
+            total += 1
+
+        self._total_entries = total
+
 
 class Ranking:
     def __init__(self, matches, limit=None, reverse=False):
@@ -494,21 +502,3 @@ class Ranking:
         elif self._reverse:
             return iter(heapq.nlargest(self._limit, self._matches, key=key))
         return iter(heapq.nsmallest(self._limit, self._matches, key=key))
-
-
-def _filter(job):
-    cdef tuple entries = job[0]
-    cdef CompositePattern pattern = job[1]
-    cdef int [:,:,:] m = create_fuzzy_search_data(PATTERN_GLOBAL_MAX_LENGTH,
-                                                  ENTRY_GLOBAL_MAX_LENGTH)
-    return tuple(_get_matches(entries, pattern, global_m=m))
-
-
-def _get_matches(entries, CompositePattern pattern not None,
-                 int [:,:,:] global_m=GLOBAL_M):
-    cdef Entry entry
-    cdef CompositeMatch match
-    for entry in entries:
-        match = pattern.match(entry, global_m=global_m)
-        if match is not None:
-            yield match

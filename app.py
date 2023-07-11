@@ -158,11 +158,11 @@ class App(QObject):
     finished = pyqtSignal()
     loop_finished = pyqtSignal()
 
-    def __init__(self, app_name='pickout', filter_pool=None, logger=None):
+    def __init__(self, app_name='pickout', logger=None):
         super(App, self).__init__()
         self.app = QApplication(sys.argv)
         self.app.setApplicationName(app_name)
-        self._filter_pool = filter_pool
+        self.app.setDesktopFileName(f'{app_name}.desktop')
         self._logger = logger
 
         self.app.aboutToQuit.connect(self.finished.emit)
@@ -210,7 +210,6 @@ class App(QObject):
         self._menu = Menu(
             entries,
             logger=self._logger,
-            filter_pool=self._filter_pool,
             limit=limit,
             bridge=self._bridge,
             picked=self.picked,

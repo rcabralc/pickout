@@ -33,19 +33,14 @@ class Menu:
                  history_key=None,
                  delimiters=[],
                  accept_input=False,
-                 filter_pool=None,
                  bridge=None,
                  picked=None):
         def refilter(patterns, entries):
-            matches, to_sort = tee(
-                elect.Filter(entries, *patterns, pool=filter_pool),
-                2
-            )
+            matches, to_sort = tee(elect.Filter(entries, *patterns), 2)
             sorted_matches = tuple(elect.Ranking(to_sort, limit=self._limit))
             return (tuple(m.entry for m in matches), sorted_matches)
 
-        all_entries = tuple(Entry(i, c) for i, c in enumerate(items))
-        self._total_items = len(all_entries)
+        all_entries = (Entry(i, c) for i, c in enumerate(items))
         self._history = History.build(self._history_path, history_key)
         self._limit = limit
         self._completion_sep = sep
@@ -61,11 +56,13 @@ class Menu:
         value = value or ''
         if self._input != value:
             self._input = value
-            self._results, self._filtered_count = self._filter(value)
+            patterns = parse_patterns(value)
+            entries, self._results = self._cache.filter(patterns)
+            self._filtered_count = len(entries)
             self._index = self.__index
 
             filtered = self._filtered_count
-            total = self._total_items
+            total = len(self._cache)
             items = [dict(data=item.entry.data, partitions=item.partitions)
                      for item in self._results]
 
@@ -99,9 +96,6 @@ class Menu:
         if selected is not None:
             self.set_input(selected.value)
             self._bridge.input.emit(self._input)
-
-    def refresh(self):
-        pass  # TODO: refresh entries
 
     def select_next(self):
         self._index += 1
@@ -151,11 +145,6 @@ class Menu:
         mode = self._mode_state.mode
         self._bridge.mode.emit(mode.prompt, mode.name)
         self._history.go_to_end()
-
-    def _filter(self, input):
-        patterns = parse_patterns(input)
-        entries, sorted_matches = self._cache.filter(patterns)
-        return (sorted_matches, len(entries))
 
     def _complete(self, input):
         patterns = parse_patterns(input)
