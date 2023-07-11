@@ -4,6 +4,7 @@
 Usage:
     pickout-file [--accept-input]
                  [--app-name=<name>]
+                 [--completion-sep=<sep>]
                  [--hidden]
                  [--home=<input>]
                  [--glob=<pattern>]...
@@ -21,6 +22,7 @@ Arguments:
 Options:
     --accept-input
     --app-name <name>
+    --completion-sep <sep>
     --home <input>
     --no-center
     --title <title>
@@ -75,7 +77,6 @@ import sys
 
 
 pickout_default_args = [
-    '--completion-sep', os.path.sep,
     '--limit', '20',
     '--loop',
     '--word-delimiters', os.path.sep
@@ -114,6 +115,7 @@ def main(args):
             accept_input=args['--accept-input'],
             app_name=args.get('--app-name'),
             center=not args['--no-center'],
+            completion_sep=args.get('--completion-sep'),
             home=args.get('--home'),
             input=path,
             history_key=f'file:{root}',
@@ -185,6 +187,7 @@ def globs_exclude(globs, path):
 
 def pickout_args(accept_input=False,
                  app_name=None,
+                 completion_sep=None,
                  center=True,
                  home=None,
                  input='',
@@ -195,6 +198,8 @@ def pickout_args(accept_input=False,
         args.append('--accept-input')
     if app_name:
         args.extend(['--app-name', app_name])
+    if completion_sep:
+        args.extend(['--completion-sep', completion_sep])
     if history_key:
         args.extend(['--history-key', history_key])
     if home:
