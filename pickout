@@ -108,8 +108,17 @@ Key bindings:
     Ctrl+H
         Set input to the home, if specified.
 
-    Ctrl+Y
+    Ctrl+M
         Copy selected entry to the input box.
+
+    Ctrl+W
+        Erase previous word in input box according to word delimiters given.
+
+    Ctrl+U
+        Erase the input box.
+
+    Ctrl+Z/Ctrl-Y
+        Undo/redo operations like erase word or erase the whole input.
 """
 
 from app import run, read_io

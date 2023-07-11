@@ -65,7 +65,8 @@
 
     global.frontend = {
       setInput: function(text) {
-        input.overwrite(text);
+        input.overwrite(text)
+        inputStack.clear()
       },
 
       setWordDelimiters: function(delimiters) {
@@ -114,23 +115,28 @@
 
       return (self = {
         setup: function(callback) { callback($el()); },
-        set: function(value) { $el().val(value).focus().change(); },
         get: function() { return $el().val(); },
-        overwrite: function(value) { $el().val(value).focus(); },
+        overwrite: function(value) {
+          if (value !== undefined) return $el().val(value).focus()
+          else return $el().focus()
+        },
         markFound: function() {
           $el().closest('#prompt-box').removeClass('not-found');
         },
         markNotFound: function() {
           $el().closest('#prompt-box').addClass('not-found');
         },
-        clear: function() { self.set(''); },
+        clear: function() {
+          inputStack.push($el().val(), '')
+          self.overwrite('').change()
+        },
         eraseWord: function() {
-          var pos = cursor(),
-              backpos = lookBackward(pos, wordDelimiters)
+          const pos = cursor()
+          let backpos = lookBackward(pos, wordDelimiters)
           if (backpos == pos && pos > 0) {
             backpos = lookBackward(pos - 1, wordDelimiters)
           }
-          replace('', backpos, pos)
+          inputStack.push(...replace('', backpos, pos))
         },
         alternatePattern: function() {
           var w = wordUnderCursor(), word = w.value, i, pat;
@@ -160,7 +166,9 @@
 
           $el().addClass(newMode + '-mode').focus();
           currentMode = newMode;
-        }
+        },
+        undo () { self.overwrite(inputStack.undo()).change() },
+        redo () { self.overwrite(inputStack.redo()).change() }
       });
 
       function $el() {
@@ -174,11 +182,15 @@
       }
 
       function replace(str, start, end) {
-        var $field = $el(), field = $field.get(0), value = $field.val();
-        $field.val(value.slice(0, start) + str + value.slice(end + 1));
-        field.selectionStart = start + str.length;
-        field.selectionEnd = field.selectionStart;
-        $field.focus().change();
+        const $field = $el()
+        const field = $field.get(0)
+        const value = $field.val()
+        const newValue = value.slice(0, start) + str + value.slice(end + 1)
+        $field.val(newValue)
+        field.selectionStart = start + str.length
+        field.selectionEnd = field.selectionStart
+        $field.focus().change()
+        return [value, newValue]
       }
 
       function wordUnderCursor(delimiters) {
@@ -339,9 +351,11 @@
     keyDownHandlers['Control-H'] = menu.setHome
     keyDownHandlers['Control-J'] = menu.next
     keyDownHandlers['Control-K'] = menu.prev
+    keyDownHandlers['Control-M'] = menu.inputSelected
     keyDownHandlers['Control-U'] = input.clear
     keyDownHandlers['Control-W'] = input.eraseWord
-    keyDownHandlers['Control-Y'] = menu.inputSelected
+    keyDownHandlers['Control-Y'] = input.redo
+    keyDownHandlers['Control-Z'] = input.undo
     keyDownHandlers['Alt-P'] = input.alternatePattern
 
     input.setup(function($input) {
@@ -407,6 +421,20 @@
       }
     }
   })
+
+  const inputStack = (function () {
+    const inputs = []
+    let pos = 0
+
+    return {
+      clear () { inputs.splice(0, inputs.length) },
+      undo () { if (pos) return inputs[--pos] },
+      push (previousValue, currentValue) {
+        inputs.splice(pos++, inputs.length, previousValue, currentValue)
+      },
+      redo () { if (pos < inputs.length - 1) return inputs[++pos] }
+    }
+  })()
 
   new QWebChannel(qt.webChannelTransport, function (channel) {
     const bridge = global.bridge = channel.objects.bridge
