@@ -5,6 +5,7 @@ Usage:
     pickout-file [--accept-input]
                  [--app-name=<name>]
                  [--hidden]
+                 [--home=<input>]
                  [--glob=<pattern>]...
                  [--path=<path>]
                  [--no-center]
@@ -20,6 +21,7 @@ Arguments:
 Options:
     --accept-input
     --app-name <name>
+    --home <input>
     --no-center
     --title <title>
         Options passed down to pickout.
@@ -112,6 +114,7 @@ def main(args):
             accept_input=args['--accept-input'],
             app_name=args.get('--app-name'),
             center=not args['--no-center'],
+            home=args.get('--home'),
             input=path,
             history_key=f'file:{root}',
             title=args['--title'] or f'Select file from {root}'
@@ -183,6 +186,7 @@ def globs_exclude(globs, path):
 def pickout_args(accept_input=False,
                  app_name=None,
                  center=True,
+                 home=None,
                  input='',
                  history_key=None,
                  title=''):
@@ -193,6 +197,8 @@ def pickout_args(accept_input=False,
         args.extend(['--app-name', app_name])
     if history_key:
         args.extend(['--history-key', history_key])
+    if home:
+        args.extend(['--home', home])
     if not center:
         args.extend(['--no-center'])
     args.extend(['--input', input, '--title', title])

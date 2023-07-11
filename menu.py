@@ -33,6 +33,7 @@ class Menu:
                  history_key=None,
                  delimiters=[],
                  accept_input=False,
+                 home_input=None,
                  bridge=None,
                  picked=None):
         def refilter(patterns, entries):
@@ -46,13 +47,14 @@ class Menu:
         self._completion_sep = sep
         self._word_delimiters = delimiters
         self._accept_input = accept_input
+        self._home_input = home_input
         self._mode_state = ModeState(insert_mode, self._input)
         self._cache = cache.Cache(all_entries, refilter)
         self._bridge = bridge or NullBridge()
         self._picked = picked or NullSignal()
         self._logger = logger or nulllogger()
 
-    def set_input(self, value):
+    def set_input(self, value, emit_input=True):
         value = value or ''
         if self._input != value:
             self._input = value
@@ -71,13 +73,15 @@ class Menu:
 
             self._bridge.update.emit(filtered, total, items)
 
+            if emit_input:
+                self._bridge.input.emit(self._input)
+
     def filter(self, input):
-        self.set_input(input)
+        self.set_input(input, emit_input=False)
         self._set_to_insert()
 
     def complete(self, input):
         self.set_input(self._complete(input))
-        self._bridge.input.emit(self._input)
         self._set_to_insert()
 
     def accept_selected(self):
@@ -95,7 +99,6 @@ class Menu:
         selected = self._get_selected()
         if selected is not None:
             self.set_input(selected.value)
-            self._bridge.input.emit(self._input)
 
     def select_next(self):
         self._index += 1
@@ -112,7 +115,6 @@ class Menu:
         entry = self._history.next(self._mode_state.input)
         if entry is not None and entry != self._input:
             self.set_input(entry)
-            self._bridge.input.emit(self._input)
 
     def select_prev_from_history(self):
         self._mode_state = self._mode_state.switch(history_mode, self._input)
@@ -121,13 +123,16 @@ class Menu:
         entry = self._history.prev(self._mode_state.input)
         if entry is not None and entry != self._input:
             self.set_input(entry)
-            self._bridge.input.emit(self._input)
 
     def get_word_delimiters(self):
         delimiters = [' ']
         if self._word_delimiters:
             delimiters.extend(self._word_delimiters)
         return ''.join(delimiters)
+
+    def set_home(self):
+        if self._home_input is not None:
+            self.set_input(self._home_input)
 
     def dismiss(self):
         self._picked.emit([])

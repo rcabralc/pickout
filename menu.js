@@ -22,6 +22,7 @@
         historyNext () { console.log('get next entry from history') },
         prev () { console.log('tell menu to select previous item') },
         next () { console.log('tell menu to select next item') },
+        setHome () { console.log('tell menu to set home') },
         dismiss () { console.log('tell menu to quit') }
       };
     })(global.console)
@@ -335,6 +336,7 @@
 
     keyDownHandlers['Control-P'] = menu.historyPrev
     keyDownHandlers['Control-N'] = menu.historyNext
+    keyDownHandlers['Control-H'] = menu.setHome
     keyDownHandlers['Control-J'] = menu.next
     keyDownHandlers['Control-K'] = menu.prev
     keyDownHandlers['Control-U'] = input.clear

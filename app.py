@@ -85,6 +85,11 @@ class JsBridge(QObject):
             self.menu.select_prev_from_history()
 
     @pyqtSlot()
+    def setHome(self):
+        if self.menu is not None:
+            self.menu.set_home()
+
+    @pyqtSlot()
     def dismiss(self):
         if self.menu is not None:
             self.menu.dismiss()

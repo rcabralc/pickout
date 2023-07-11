@@ -7,6 +7,7 @@ Usage:
             [--completion-sep=<sep>]
             [--debug]
             [--history-key=<key>]
+            [--home=<input>]
             [--input=<input>]
             [--json-output]
             [--limit=<limit>]
@@ -43,6 +44,9 @@ Options:
         directory as the key.  Next time this program is used for this
         directory, it'll remember the previous input, allowing the user to
         reuse it.
+
+    --home <input>
+        Defines an input to be the "home" input (set by pressing Ctrl-H).
 
     -i <input>, --input <input>
         Use <input> as a initial value.
@@ -101,6 +105,9 @@ Key bindings:
     Ctrl+P
         Get previous history entry and use it as the input.
 
+    Ctrl+H
+        Set input to the home, if specified.
+
     Ctrl+Y
         Copy selected entry to the input box.
 """
@@ -129,6 +136,7 @@ def main(args):
         delimiters=list((args['--word-delimiters'] or '')),
         history_key=args['--history-key'],
         accept_input=args['--accept-input'],
+        home_input=args['--home'],
         json_output=args['--json-output'],
         title=args['--title']
     )
