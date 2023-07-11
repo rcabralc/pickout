@@ -1,7 +1,12 @@
+from collections import deque
+
+
 class Cache:
+    __entries = None
+
     def __init__(self, entries, refilter):
         self._cache = {}
-        self._entries = entries
+        self._entries_it = entries
         self._refilter = refilter
 
     def filter(self, input):
@@ -9,10 +14,24 @@ class Cache:
         hit = self._find(key)
 
         if not hit:
-            return self._update(key, self._refilter(input, self._entries))
+            return self._update(key, self._refilter(input, self._entries()))
         if hit.key == key:
             return hit.result
         return self._update(key, self._refilter(input, hit.entries))
+
+    def __len__(self):
+        if self.__entries is None:
+            self.__entries = deque(self._entries_it)
+        return len(self.__entries)
+
+    def _entries(self):
+        if self.__entries is None:
+            self.__entries = deque()
+            for entry in self._entries_it:
+                yield entry
+                self.__entries.append(entry)
+        else:
+            yield from self.__entries
 
     def _update(self, key, result):
         self._cache[key] = _Hit(key, result)
