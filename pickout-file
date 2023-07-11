@@ -110,17 +110,9 @@ def main(args):
     else:
         path += os.path.sep
 
+    title = args['--title'] or f'Select file from {root}'
     pickout = Popen(
-        pickout_args(
-            accept_input=args['--accept-input'],
-            app_name=args.get('--app-name'),
-            center=not args['--no-center'],
-            completion_sep=args.get('--completion-sep'),
-            home=args.get('--home'),
-            input=path,
-            history_key=f'file:{root}',
-            title=args['--title'] or f'Select file from {root}'
-        ),
+        pickout_cmd_args(args, input=path, title=title),
         bufsize=0,
         stdin=PIPE,
         stdout=PIPE,
@@ -163,11 +155,12 @@ def main(args):
                 path = ''
 
             globs = original_globs
+            title = args['--title'] or f'Select file from {root}'
             pickout_opts = json.dumps(dict(
                 accept_input=args['--accept-input'],
                 history_key=f'file:{root}',
                 input=path,
-                title=args['--title'] or f'Select file from {root}'
+                title=title
             ))
             pickout.stdin.write((pickout_opts + '\n').encode(encoding))
             pickout.stdin.flush()
@@ -185,29 +178,17 @@ def globs_exclude(globs, path):
     return spec.match_file(path)
 
 
-def pickout_args(accept_input=False,
-                 app_name=None,
-                 completion_sep=None,
-                 center=True,
-                 home=None,
-                 input='',
-                 history_key=None,
-                 title=''):
-    args = ['pickout', *pickout_default_args]
-    if accept_input:
-        args.append('--accept-input')
-    if app_name:
-        args.extend(['--app-name', app_name])
-    if completion_sep:
-        args.extend(['--completion-sep', completion_sep])
-    if history_key:
-        args.extend(['--history-key', history_key])
-    if home:
-        args.extend(['--home', home])
-    if not center:
-        args.extend(['--no-center'])
-    args.extend(['--input', input, '--title', title])
-    return args
+def pickout_cmd_args(args, input='', title=''):
+    cmd_args = ['pickout', *pickout_default_args]
+    if args['--accept-input']:
+        cmd_args.append('--accept-input')
+    if args['--no-center']:
+        cmd_args.append('--no-center')
+    for name in ['app-name', 'completion-sep', 'history-key', 'home']:
+        if value := args.get(f'--{name}'):
+            cmd_args.extend([f'--{name}', value])
+    cmd_args.extend(['--input', input, '--title', title])
+    return cmd_args
 
 
 def choose(root, pickout, rg_opts, add_pardir=True):
