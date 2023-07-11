@@ -65,6 +65,7 @@ from docopt import docopt
 from shutil import which
 from subprocess import DEVNULL, PIPE, Popen, run
 
+import io
 import json
 import os
 import pathspec
@@ -205,14 +206,14 @@ def choose(root, pickout, rg_opts, add_pardir=True):
     if add_pardir:
         # If the parent directory is not root, offer the option to access it.
         if len(root.split(os.path.sep)) > 2:
-            pardir = os.pardir.encode(encoding) + linesep
-            pickout.stdin.write(pardir)
+            pickout.stdin.write(os.pardir.encode(encoding) + linesep)
 
-    results = []
-    for line in rg.stdout:
-        results.append(line)
-        pickout.stdin.write(line)
-    pickout.stdin.write(linesep)
+    rg_out = rg.stdout.read()
+    pickout.stdin.write(rg_out.rstrip(linesep) + linesep + linesep)
+
+    results = set()
+    for line in iter(io.StringIO(rg_out.decode(encoding)).readline, ''):
+        results.add(line.rstrip())
 
     with rg:
         pass
