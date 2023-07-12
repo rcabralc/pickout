@@ -198,13 +198,13 @@ class Menu:
 class Input:
     def __init__(self, word_delimiters):
         self._delimiters = word_delimiters
-        self._value = ''
+        self._value = None
 
     def get(self):
         return self._value
 
     def set(self, value):
-        old_value, self._value = self._value, value
+        old_value, self._value = self._value or '', value
         return old_value
 
     def alternate_pattern(self, pos):
