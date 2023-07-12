@@ -43,6 +43,7 @@ class Menu:
 
         all_entries = (Entry(i, c) for i, c in enumerate(items))
         self._input = Input(delimiters)
+        self._input_stack = InputStack()
         self._history = History.build(self._history_path, history_key)
         self._limit = limit
         self._completion_sep = sep
@@ -58,7 +59,12 @@ class Menu:
     def set_input(self, value, emit_input=True, undoable=False, undoing=False):
         value = value or ''
         if self._input.get() != value:
-            self._input.set(value, undoable=undoable, undoing=undoing)
+            old_value = self._input.set(value)
+            if undoable:
+                self._input_stack.push(old_value, value)
+            elif not undoing:
+                self._input_stack.clear()
+
             patterns = parse_patterns(value)
             entries, self._results = self._cache.filter(patterns)
             self._filtered_count = len(entries)
@@ -152,12 +158,12 @@ class Menu:
         self._bridge.cursor.emit(pos)
 
     def redo(self):
-        value = self._input.redo()
+        value = self._input_stack.redo()
         if value is not None:
             self.set_input(value, undoing=True)
 
     def undo(self):
-        value = self._input.undo()
+        value = self._input_stack.undo()
         if value is not None:
             self.set_input(value, undoing=True)
 
@@ -198,19 +204,14 @@ class Menu:
 class Input:
     def __init__(self, word_delimiters):
         self._delimiters = word_delimiters
-        self._stack = InputStack()
         self._value = ''
 
     def get(self):
         return self._value
 
-    def set(self, value, undoable=False, undoing=False):
-        old_value = self._value
-        self._value = value
-        if undoable:
-            self._stack.push(old_value, value)
-        elif not undoing:
-            self._stack.clear()
+    def set(self, value):
+        old_value, self._value = self._value, value
+        return old_value
 
     def alternate_pattern(self, pos):
         word, start, end = self._word_under_cursor(pos)
@@ -231,12 +232,6 @@ class Input:
         if backpos == pos and pos > 0:
             backpos = self._look_backward(pos - 1, self._delimiters)
         return self._replace('', backpos, pos - 1)
-
-    def redo(self):
-        return self._stack.redo()
-
-    def undo(self):
-        return self._stack.undo()
 
     def _look_backward(self, start, delimiters):
         if start > len(self._value):
