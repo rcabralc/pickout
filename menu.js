@@ -61,14 +61,8 @@
       return forwarded
     })(Object.keys(stubbedBridge))
 
-    let wordDelimiters
-
     global.frontend = {
       setInput: function(text) { input.overwrite(text) },
-
-      setWordDelimiters: function(delimiters) {
-        wordDelimiters = delimiters.split('')
-      },
 
       updateMode: function(prompt, name) {
         $('#prompt-box .prompt').text(prompt)
@@ -351,7 +345,6 @@
     const bridge = global.bridge = channel.objects.bridge
 
     bridge.cursor.connect(input.setCursor)
-    bridge.delimiters.connect(frontend.setWordDelimiters)
     bridge.index.connect(frontend.select)
     bridge.input.connect(frontend.setInput)
     bridge.mode.connect(frontend.updateMode)

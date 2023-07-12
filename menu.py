@@ -131,12 +131,6 @@ class Menu:
         if entry is not None and entry != self._input.get():
             self.set_input(entry)
 
-    def get_word_delimiters(self):
-        delimiters = [' ']
-        if self._word_delimiters:
-            delimiters.extend(self._word_delimiters)
-        return ''.join(delimiters)
-
     def set_home(self):
         if self._home_input is not None:
             self.set_input(self._home_input, undoable=True)

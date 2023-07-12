@@ -32,7 +32,6 @@ def menu_slot(*types):
 
 class JsBridge(QObject):
     cursor = pyqtSignal(int)
-    delimiters = pyqtSignal(str)
     index = pyqtSignal(int)
     input = pyqtSignal(str)
     mode = pyqtSignal([str, str])
@@ -225,7 +224,6 @@ class App(QObject):
         def init_menu():
             self._menu.set_input(input)
             self._bridge.input.emit(input)
-            self._bridge.delimiters.emit(self._menu.get_word_delimiters())
 
         def init_menu_single_shot():
             self._bridge.ready.disconnect(init_menu_single_shot)
