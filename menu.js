@@ -2,28 +2,28 @@
   "use strict";
 
   const { jQuery: $, QWebChannel, qt } = global
+  let input
 
   $(function() {
     const stubbedBridge = global.bridge = (function (console) {
       // Stub bridge implementation.  The real one is inject by Qt.
-
       return {
-        filter (text, complete) {
-          if (complete) {
-            console.log('send input to menu for completing', text);
-          } else {
-            console.log('send input to menu for filtering', text);
-          }
-        },
-        acceptInput () { console.log('tell menu to accept current input') },
-        acceptSelected () { console.log('tell menu to accept selected item') },
-        inputSelected () { console.log('get selected value from menu') },
-        historyPrev () { console.log('get previous entry from history') },
-        historyNext () { console.log('get next entry from history') },
-        prev () { console.log('tell menu to select previous item') },
-        next () { console.log('tell menu to select next item') },
-        setHome () { console.log('tell menu to set home') },
-        dismiss () { console.log('tell menu to quit') }
+        accept_input () { console.log('tell menu to accept current input') },
+        accept_selected () { console.log('tell menu to accept selected item') },
+        alternate_pattern (pos) { console.log('tell menu to alternate pattern of word under cursor at position', pos) },
+        clear () { console.log('tell menu to clear input') },
+        complete (text) { console.log('send input to menu for completing', text) },
+        dismiss () { console.log('tell menu to quit') },
+        erase_word (pos) { console.log('tell menu to erase backward word from position', pos) },
+        filter (text) { console.log('send input to menu for filtering', text) },
+        filter_with_selected () { console.log('get selected value from menu') },
+        redo () { console.log('tell menu to redo next undoable operation') },
+        select_next () { console.log('tell menu to select next item') },
+        select_next_from_history () { console.log('get next entry from history') },
+        select_prev () { console.log('tell menu to select previous item') },
+        select_prev_from_history () { console.log('get previous entry from history') },
+        set_home () { console.log('tell menu to set home') },
+        undo () { console.log('tell menu to undo last undoable operation') }
       };
     })(global.console)
 
@@ -38,36 +38,33 @@
         return bridge
       }, {})
 
-      forwarded.filter = function (text, complete) {
+      forwarded.sendText = function (text, complete) {
         const delay = global.filterKeypressDelay
 
         if (complete) {
           clearTimeout(filterTimeout)
-          return filter(text, true)
+          filterTimeout = null
+          forwarded.complete(text)
+          return
         }
 
         // accumulate filter calls which are not complete
         filterText = text
         if (filterTimeout) return
 
-        filterTimeout = setTimeout(() => { filter(filterText, false) }, delay)
+        filterTimeout = setTimeout(() => {
+          filterTimeout = null
+          forwarded.filter(filterText)
+        }, delay)
       }
 
       return forwarded
-
-      function filter (text, complete) {
-        filterTimeout = null
-        global.bridge.filter(text, complete)
-      }
     })(Object.keys(stubbedBridge))
 
     let wordDelimiters
 
     global.frontend = {
-      setInput: function(text) {
-        input.overwrite(text)
-        inputStack.clear()
-      },
+      setInput: function(text) { input.overwrite(text) },
 
       setWordDelimiters: function(delimiters) {
         wordDelimiters = delimiters.split('')
@@ -105,11 +102,10 @@
       }
     }
 
-    const input = (function() {
+    input = (function() {
       var self,
           _$el,
-          currentMode,
-          patternTypes = ['@*', '@/'];
+          currentMode
 
       $(window).on('focus', function() { $el().focus(); });
 
@@ -126,39 +122,14 @@
         markNotFound: function() {
           $el().closest('#prompt-box').addClass('not-found');
         },
-        clear: function() {
-          inputStack.push($el().val(), '')
-          self.overwrite('').change()
+        setCursor (pos) {
+          const $field = $el()
+          const field = $field.get(0)
+          field.selectionStart = field.selectionEnd = pos
+          $field.focus().change()
         },
-        eraseWord: function() {
-          const pos = cursor()
-          let backpos = lookBackward(pos, wordDelimiters)
-          if (backpos == pos && pos > 0) {
-            backpos = lookBackward(pos - 1, wordDelimiters)
-          }
-          inputStack.push(...replace('', backpos, pos))
-        },
-        alternatePattern: function() {
-          var w = wordUnderCursor(), word = w.value, i, pat;
-
-          for (i = patternTypes.length - 1; i >= 0; i--) {
-            pat = patternTypes[i];
-            if (word.startsWith(pat)) {
-              word = word.slice(pat.length);
-              if (i == patternTypes.length - 1) {
-                pat = '';
-              } else {
-                pat = patternTypes[i + 1];
-              }
-              word = pat + word;
-              replace(word, w.start, w.end);
-              return;
-            }
-          }
-
-          word = patternTypes[0] + word;
-          replace(word, w.start, w.end);
-        },
+        eraseWord: function() { menu.erase_word(cursor()) },
+        alternatePattern: function() { menu.alternate_pattern(cursor()) },
         setMode: function(newMode) {
           if (currentMode) {
             $el().removeClass(currentMode + '-mode');
@@ -166,9 +137,7 @@
 
           $el().addClass(newMode + '-mode').focus();
           currentMode = newMode;
-        },
-        undo () { self.overwrite(inputStack.undo()).change() },
-        redo () { self.overwrite(inputStack.redo()).change() }
+        }
       });
 
       function $el() {
@@ -179,50 +148,6 @@
         var field = $el().get(0);
         return field.selectionDirection == 'backward' ?
           field.selectionStart : field.selectionEnd;
-      }
-
-      function replace(str, start, end) {
-        const $field = $el()
-        const field = $field.get(0)
-        const value = $field.val()
-        const newValue = value.slice(0, start) + str + value.slice(end + 1)
-        $field.val(newValue)
-        field.selectionStart = start + str.length
-        field.selectionEnd = field.selectionStart
-        $field.focus().change()
-        return [value, newValue]
-      }
-
-      function wordUnderCursor(delimiters) {
-        var value = $el().val(),
-            pos = cursor(),
-            start, end;
-
-        delimiters = delimiters || [' '];
-        start = lookBackward(pos, delimiters);
-        end = lookForward(start, delimiters);
-
-        return { start: start, end: end, value: value.slice(start, end + 1) };
-      }
-
-      function lookBackward(pos, delimiters) {
-        var start = pos, value = $el().val();
-        while (start > 0) {
-          if (delimiters.includes(value[start - 1])) break;
-          start -= 1;
-        }
-        while (delimiters.includes(value[start])) start += 1;
-        return start;
-      }
-
-      function lookForward(pos, delimiters) {
-        var end = pos, value = $el().val();
-        while (end < value.length - 1) {
-          if (delimiters.includes(value[end])) break;
-          end += 1;
-        }
-        while (delimiters.includes(value[end])) end -= 1;
-        return end;
       }
     })();
 
@@ -334,28 +259,28 @@
     const keyUpHandlers = {}
     const keyDownHandlers = {}
 
-    keyUpHandlers.Enter = menu.acceptSelected
+    keyUpHandlers.Enter = menu.accept_selected
     keyUpHandlers.Escape = menu.dismiss
-    keyUpHandlers['Control-Enter'] = menu.acceptInput
+    keyUpHandlers['Control-Enter'] = menu.accept_input
     keyUpHandlers['Control-Space'] = keyUpHandlers.Escape
     keyUpHandlers.Tab = function() {
-      menu.filter(input.get(), true)
+      menu.sendText(input.get(), true)
     }
 
     ;['P', 'N'].forEach(function(k) {
       keyUpHandlers['Control-' + k] = function() { }
     })
 
-    keyDownHandlers['Control-P'] = menu.historyPrev
-    keyDownHandlers['Control-N'] = menu.historyNext
-    keyDownHandlers['Control-H'] = menu.setHome
-    keyDownHandlers['Control-J'] = menu.next
-    keyDownHandlers['Control-K'] = menu.prev
-    keyDownHandlers['Control-M'] = menu.inputSelected
-    keyDownHandlers['Control-U'] = input.clear
+    keyDownHandlers['Control-P'] = menu.select_prev_from_history
+    keyDownHandlers['Control-N'] = menu.select_next_from_history
+    keyDownHandlers['Control-H'] = menu.set_home
+    keyDownHandlers['Control-J'] = menu.select_next
+    keyDownHandlers['Control-K'] = menu.select_prev
+    keyDownHandlers['Control-M'] = menu.filter_with_selected
+    keyDownHandlers['Control-U'] = menu.clear
     keyDownHandlers['Control-W'] = input.eraseWord
-    keyDownHandlers['Control-Y'] = input.redo
-    keyDownHandlers['Control-Z'] = input.undo
+    keyDownHandlers['Control-Y'] = menu.redo
+    keyDownHandlers['Control-Z'] = menu.undo
     keyDownHandlers['Alt-P'] = input.alternatePattern
 
     input.setup(function($input) {
@@ -385,7 +310,7 @@
     entries.setup();
 
     function defaultHandler() {
-      menu.filter(input.get(), false);
+      menu.sendText(input.get(), false);
     }
 
     function swallow(event, callback) {
@@ -422,26 +347,13 @@
     }
   })
 
-  const inputStack = (function () {
-    const inputs = []
-    let pos = 0
-
-    return {
-      clear () { inputs.splice(0, inputs.length) },
-      undo () { if (pos) return inputs[--pos] },
-      push (previousValue, currentValue) {
-        inputs.splice(pos++, inputs.length, previousValue, currentValue)
-      },
-      redo () { if (pos < inputs.length - 1) return inputs[++pos] }
-    }
-  })()
-
   new QWebChannel(qt.webChannelTransport, function (channel) {
     const bridge = global.bridge = channel.objects.bridge
 
+    bridge.cursor.connect(input.setCursor)
+    bridge.delimiters.connect(frontend.setWordDelimiters)
     bridge.index.connect(frontend.select)
     bridge.input.connect(frontend.setInput)
-    bridge.delimiters.connect(frontend.setWordDelimiters)
     bridge.mode.connect(frontend.updateMode)
     bridge.update.connect(frontend.update)
 

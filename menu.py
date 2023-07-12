@@ -7,6 +7,7 @@ import os
 
 
 MAX_HISTORY_ENTRIES = 100
+PATTERN_TYPES = ['@*', '@/']
 
 Entry = elect.Entry
 
@@ -21,7 +22,6 @@ class nulllogger:
 
 class Menu:
     _filtered_count = __index = 0
-    _input = None
     _results = []
     _history_path = os.path.join(os.path.dirname(__file__), 'history.json')
 
@@ -42,22 +42,23 @@ class Menu:
             return (tuple(m.entry for m in matches), sorted_matches)
 
         all_entries = (Entry(i, c) for i, c in enumerate(items))
+        self._input = Input(delimiters)
         self._history = History.build(self._history_path, history_key)
         self._limit = limit
         self._completion_sep = sep
         self._word_delimiters = delimiters
         self._accept_input = accept_input
         self._home_input = home_input
-        self._mode_state = ModeState(insert_mode, self._input)
+        self._mode_state = ModeState(insert_mode, self._input.get())
         self._cache = cache.Cache(all_entries, refilter)
         self._bridge = bridge or NullBridge()
         self._picked = picked or NullSignal()
         self._logger = logger or nulllogger()
 
-    def set_input(self, value, emit_input=True):
+    def set_input(self, value, emit_input=True, undoable=False, undoing=False):
         value = value or ''
-        if self._input != value:
-            self._input = value
+        if self._input.get() != value:
+            self._input.set(value, undoable=undoable, undoing=undoing)
             patterns = parse_patterns(value)
             entries, self._results = self._cache.filter(patterns)
             self._filtered_count = len(entries)
@@ -74,7 +75,7 @@ class Menu:
             self._bridge.update.emit(filtered, total, items)
 
             if emit_input:
-                self._bridge.input.emit(self._input)
+                self._bridge.input.emit(self._input.get())
 
     def filter(self, input):
         self.set_input(input, emit_input=False)
@@ -87,13 +88,13 @@ class Menu:
     def accept_selected(self):
         selected = self._get_selected()
         if selected is not None:
-            self._history.add(self._input)
+            self._history.add(self._input.get())
             self._picked.emit([selected])
 
     def accept_input(self):
         if self._accept_input:
-            self._history.add(self._input)
-            self._picked.emit([Entry(-1, self._input)])
+            self._history.add(self._input.get())
+            self._picked.emit([Entry(-1, self._input.get())])
 
     def filter_with_selected(self):
         selected = self._get_selected()
@@ -109,19 +110,19 @@ class Menu:
         self._bridge.index.emit(self._index)
 
     def select_next_from_history(self):
-        self._mode_state = self._mode_state.switch(history_mode, self._input)
+        self._mode_state = self._mode_state.switch(history_mode, self._input.get())
         mode = self._mode_state.mode
         self._bridge.mode.emit(mode.prompt, mode.name)
         entry = self._history.next(self._mode_state.input)
-        if entry is not None and entry != self._input:
+        if entry is not None and entry != self._input.get():
             self.set_input(entry)
 
     def select_prev_from_history(self):
-        self._mode_state = self._mode_state.switch(history_mode, self._input)
+        self._mode_state = self._mode_state.switch(history_mode, self._input.get())
         mode = self._mode_state.mode
         self._bridge.mode.emit(mode.prompt, mode.name)
         entry = self._history.prev(self._mode_state.input)
-        if entry is not None and entry != self._input:
+        if entry is not None and entry != self._input.get():
             self.set_input(entry)
 
     def get_word_delimiters(self):
@@ -134,8 +135,31 @@ class Menu:
         if self._home_input is not None:
             self.set_input(self._home_input)
 
+    def alternate_pattern(self, pos):
+        value, pos = self._input.alternate_pattern(pos)
+        self.set_input(value)
+        self._bridge.cursor.emit(pos)
+
+    def clear(self):
+        self.set_input('', undoable=True)
+
     def dismiss(self):
         self._picked.emit([])
+
+    def erase_word(self, pos):
+        value, pos = self._input.erase_word(pos)
+        self.set_input(value, undoable=True)
+        self._bridge.cursor.emit(pos)
+
+    def redo(self):
+        value = self._input.redo()
+        if value is not None:
+            self.set_input(value, undoing=True)
+
+    def undo(self):
+        value = self._input.undo()
+        if value is not None:
+            self.set_input(value, undoing=True)
 
     @property
     def _index(self):
@@ -146,7 +170,7 @@ class Menu:
         self.__index = max(0, min(value, len(self._results) - 1))
 
     def _set_to_insert(self):
-        self._mode_state = self._mode_state.switch(insert_mode, self._input)
+        self._mode_state = self._mode_state.switch(insert_mode, self._input.get())
         mode = self._mode_state.mode
         self._bridge.mode.emit(mode.prompt, mode.name)
         self._history.go_to_end()
@@ -169,6 +193,105 @@ class Menu:
         items = self._results
         if items:
             return items[self._index].entry
+
+
+class Input:
+    def __init__(self, word_delimiters):
+        self._delimiters = word_delimiters
+        self._stack = InputStack()
+        self._value = ''
+
+    def get(self):
+        return self._value
+
+    def set(self, value, undoable=False, undoing=False):
+        old_value = self._value
+        self._value = value
+        if undoable:
+            self._stack.push(old_value, value)
+        elif not undoing:
+            self._stack.clear()
+
+    def alternate_pattern(self, pos):
+        word, start, end = self._word_under_cursor(pos)
+
+        for i in range(len(PATTERN_TYPES)):
+            pat = PATTERN_TYPES[i]
+            if word.startswith(pat):
+                word = word[len(pat):]
+                if i != len(PATTERN_TYPES) - 1:
+                    word = PATTERN_TYPES[i + 1] + word
+                break
+        else:
+            word = PATTERN_TYPES[0] + word
+        return self._replace(word, start, end)
+
+    def erase_word(self, pos):
+        backpos = self._look_backward(pos, self._delimiters)
+        if backpos == pos and pos > 0:
+            backpos = self._look_backward(pos - 1, self._delimiters)
+        return self._replace('', backpos, pos - 1)
+
+    def redo(self):
+        return self._stack.redo()
+
+    def undo(self):
+        return self._stack.undo()
+
+    def _look_backward(self, start, delimiters):
+        if start > len(self._value):
+            return len(self._value)
+
+        while start > 0:
+            if self._value[start - 1] in delimiters:
+                break
+            start -= 1
+
+        return start
+
+    def _look_forward(self, end, delimiters):
+        if end < 0:
+            return 0
+
+        while end < len(self._value) - 1:
+            if self._value[end] in delimiters:
+                break
+            end += 1
+
+        return end
+
+    def _replace(self, replacement, start, end):
+        new_value = self._value[:start] + replacement + self._value[end + 1:]
+        return new_value, start + len(replacement)
+
+    def _word_under_cursor(self, pos):
+        start = self._look_backward(pos, [' '])
+        end = self._look_forward(pos, [' '])
+        word = self._value[start:end + 1]
+        return word, start, end
+
+
+class InputStack:
+    def __init__(self):
+        self.clear()
+
+    def clear(self):
+        self._pos = 0
+        self._inputs = []
+
+    def push(self, prev_value, current_value):
+        self._inputs[self._pos:] = [prev_value, current_value]
+        self._pos += 1
+
+    def redo(self):
+        if self._pos < len(self._inputs) - 1:
+            self._pos += 1
+            return self._inputs[self._pos]
+
+    def undo(self):
+        if self._pos:
+            self._pos -= 1
+            return self._inputs[self._pos]
 
 
 class NullSignal:

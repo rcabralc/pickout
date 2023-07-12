@@ -19,12 +19,24 @@ class nulllogger:
         pass
 
 
+def menu_slot(*types):
+    slot = pyqtSlot(*types)
+    def decorate(method):
+        def forwarded(self, *args):
+            if self.menu is not None:
+                getattr(self.menu, method.__name__)(*args)
+        forwarded.__name__ = method.__name__
+        return slot(forwarded)
+    return decorate
+
+
 class JsBridge(QObject):
-    ready = pyqtSignal()
+    cursor = pyqtSignal(int)
+    delimiters = pyqtSignal(str)
     index = pyqtSignal(int)
     input = pyqtSignal(str)
-    delimiters = pyqtSignal(str)
     mode = pyqtSignal([str, str])
+    ready = pyqtSignal()
     update = pyqtSignal([int, int, list])
 
     menu = None
@@ -35,64 +47,53 @@ class JsBridge(QObject):
         self.is_ready = True
         self.ready.emit()
 
-    @pyqtSlot(str, bool)
-    def filter(self, input, complete):
-        if self.menu is None:
-            return
-        if complete:
-            self.menu.complete(input)
-        else:
-            self.menu.filter(input)
+    @menu_slot()
+    def accept_input(): pass
 
-    @pyqtSlot()
-    def acceptSelected(self):
-        if self.menu is not None:
-            self.menu.accept_selected()
+    @menu_slot()
+    def accept_selected(): pass
 
-    @pyqtSlot()
-    def acceptInput(self):
-        if self.menu is not None:
-            self.menu.accept_input()
+    @menu_slot(int)
+    def alternate_pattern(): pass
 
-    @pyqtSlot()
-    def inputSelected(self):
-        if self.menu is not None:
-            self.menu.filter_with_selected()
+    @menu_slot()
+    def clear(): pass
 
-    @pyqtSlot()
-    def refresh(self):
-        if self.menu is not None:
-            self.menu.refresh()
+    @menu_slot(str)
+    def complete(): pass
 
-    @pyqtSlot()
-    def next(self):
-        if self.menu is not None:
-            self.menu.select_next()
+    @menu_slot()
+    def dismiss(): pass
 
-    @pyqtSlot()
-    def prev(self):
-        if self.menu is not None:
-            self.menu.select_prev()
+    @menu_slot(int)
+    def erase_word(): pass
 
-    @pyqtSlot()
-    def historyNext(self):
-        if self.menu is not None:
-            self.menu.select_next_from_history()
+    @menu_slot(str)
+    def filter(): pass
 
-    @pyqtSlot()
-    def historyPrev(self):
-        if self.menu is not None:
-            self.menu.select_prev_from_history()
+    @menu_slot()
+    def filter_with_selected(): pass
 
-    @pyqtSlot()
-    def setHome(self):
-        if self.menu is not None:
-            self.menu.set_home()
+    @menu_slot()
+    def redo(): pass
 
-    @pyqtSlot()
-    def dismiss(self):
-        if self.menu is not None:
-            self.menu.dismiss()
+    @menu_slot()
+    def select_next(): pass
+
+    @menu_slot()
+    def select_next_from_history(): pass
+
+    @menu_slot()
+    def select_prev(): pass
+
+    @menu_slot()
+    def select_prev_from_history(): pass
+
+    @menu_slot()
+    def set_home(): pass
+
+    @menu_slot()
+    def undo(): pass
 
 
 class MainView(QWebEngineView):
