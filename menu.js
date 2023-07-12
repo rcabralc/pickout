@@ -2,6 +2,7 @@
   "use strict";
 
   const { jQuery: $, QWebChannel, qt } = global
+  let entries
   let input
 
   $(function() {
@@ -61,41 +62,6 @@
       return forwarded
     })(Object.keys(stubbedBridge))
 
-    global.frontend = {
-      setInput: function(text) { input.overwrite(text) },
-
-      updateMode: function(prompt, name) {
-        $('#prompt-box .prompt').text(prompt)
-        input.setMode(name)
-      },
-
-      update: function (filtered, total, items) {
-        // if (total > 300000) global.filterKeypressDelay = 150
-        // else if (total > 150000) global.filterKeypressDelay = 100
-        // else global.filterKeypressDelay = 0
-
-        $('#prompt-box .counters').text(`${filtered}/${total}`)
-
-        entries.set(items)
-
-        if (items.length) {
-          input.markFound()
-        } else {
-          input.markNotFound()
-        }
-
-        if (filtered > items.length) {
-          $('#prompt-box').addClass('over-limit')
-        } else {
-          $('#prompt-box').removeClass('over-limit')
-        }
-      },
-
-      select: function(index) {
-        entries.select(index);
-      }
-    }
-
     input = (function() {
       var self,
           _$el,
@@ -110,12 +76,6 @@
           if (value !== undefined) return $el().val(value).focus()
           else return $el().focus()
         },
-        markFound: function() {
-          $el().closest('#prompt-box').removeClass('not-found');
-        },
-        markNotFound: function() {
-          $el().closest('#prompt-box').addClass('not-found');
-        },
         setCursor (pos) {
           const $field = $el()
           const field = $field.get(0)
@@ -124,7 +84,9 @@
         },
         eraseWord: function() { menu.erase_word(cursor()) },
         alternatePattern: function() { menu.alternate_pattern(cursor()) },
-        setMode: function(newMode) {
+        updateMode: function(prompt, newMode) {
+          $('#prompt-box .prompt').text(prompt)
+
           if (currentMode) {
             $el().removeClass(currentMode + '-mode');
           }
@@ -145,7 +107,7 @@
       }
     })();
 
-    const entries = (function() {
+    entries = (function() {
       var _$box, _$el, _$sb;
 
       return {
@@ -158,32 +120,6 @@
           }
         },
 
-        set: function(items) {
-          var entries = items.map(function(item) {
-            var $li = $(document.createElement('li'));
-
-            if (item.data.icon) $li.append(`<img src="${item.data.icon}" />`)
-
-            var title = '<p>' + item.partitions.map(function(partition) {
-              return partition.unmatched +
-                `<span class="match">${partition.matched}</span>`
-            }).join('') + '</p>'
-
-            $li.append(title)
-
-            if (item.data.subtext) {
-              $li.append(`<p class="subtext">${item.data.subtext}</p>`)
-            }
-
-            if (item.selected) $li.addClass('selected')
-
-            return $li
-          });
-
-          $el().html(entries);
-          adjustScroll();
-        },
-
         select: function(index) {
           var $e = $el();
           $e.find('li.selected').removeClass('selected');
@@ -191,7 +127,55 @@
             $e.find('li:nth-child(' + (index + 1) + ')').addClass('selected')
           );
         },
-      };
+
+        update: function (filtered, total, items) {
+          // if (total > 300000) global.filterKeypressDelay = 150
+          // else if (total > 150000) global.filterKeypressDelay = 100
+          // else global.filterKeypressDelay = 0
+
+          $('#prompt-box .counters').text(`${filtered}/${total}`)
+
+          set(items)
+
+          if (items.length) {
+            $('#prompt-box').removeClass('not-found')
+          } else {
+            $('#prompt-box').addClass('not-found')
+          }
+
+          if (filtered > items.length) {
+            $('#prompt-box').addClass('over-limit')
+          } else {
+            $('#prompt-box').removeClass('over-limit')
+          }
+        }
+      }
+
+      function set (items) {
+        var entries = items.map(function(item) {
+          var $li = $(document.createElement('li'));
+
+          if (item.data.icon) $li.append(`<img src="${item.data.icon}" />`)
+
+          var title = '<p>' + item.partitions.map(function(partition) {
+            return partition.unmatched +
+              `<span class="match">${partition.matched}</span>`
+          }).join('') + '</p>'
+
+          $li.append(title)
+
+          if (item.data.subtext) {
+            $li.append(`<p class="subtext">${item.data.subtext}</p>`)
+          }
+
+          if (item.selected) $li.addClass('selected')
+
+          return $li
+        })
+
+        $el().html(entries)
+        adjustScroll()
+      }
 
       function $box() {
         return (_$box = _$box || $('#entries-box'));
@@ -345,10 +329,10 @@
     const bridge = global.bridge = channel.objects.bridge
 
     bridge.cursor.connect(input.setCursor)
-    bridge.index.connect(frontend.select)
-    bridge.input.connect(frontend.setInput)
-    bridge.mode.connect(frontend.updateMode)
-    bridge.update.connect(frontend.update)
+    bridge.index.connect(entries.select)
+    bridge.input.connect(input.overwrite)
+    bridge.mode.connect(input.updateMode)
+    bridge.update.connect(entries.update)
 
     bridge.js_ready()
   })
