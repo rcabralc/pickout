@@ -99,7 +99,7 @@ class Menu:
     def filter_with_selected(self):
         selected = self._get_selected()
         if selected is not None:
-            self.set_input(selected.value)
+            self.set_input(selected.value, undoable=True)
 
     def select_next(self):
         self._index += 1
@@ -133,7 +133,7 @@ class Menu:
 
     def set_home(self):
         if self._home_input is not None:
-            self.set_input(self._home_input)
+            self.set_input(self._home_input, undoable=True)
 
     def alternate_pattern(self, pos):
         value, pos = self._input.alternate_pattern(pos)
