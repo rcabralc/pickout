@@ -111,8 +111,9 @@ def main(args):
         path += os.path.sep
 
     title = args['--title'] or f'Select file from {root}'
+    key = f'file://{root}'
     pickout = Popen(
-        pickout_cmd_args(args, input=path, title=title),
+        pickout_cmd_args(args, key, input=path, title=title),
         bufsize=0,
         stdin=PIPE,
         stdout=PIPE,
@@ -158,7 +159,7 @@ def main(args):
             title = args['--title'] or f'Select file from {root}'
             pickout_opts = json.dumps(dict(
                 accept_input=args['--accept-input'],
-                history_key=f'file:{root}',
+                history_key=f'file://{root}',
                 input=path,
                 title=title
             ))
@@ -178,13 +179,13 @@ def globs_exclude(globs, path):
     return spec.match_file(path)
 
 
-def pickout_cmd_args(args, input='', title=''):
-    cmd_args = ['pickout', *pickout_default_args]
+def pickout_cmd_args(args, key, input='', title=''):
+    cmd_args = ['pickout', *pickout_default_args, '--history-key', key]
     if args['--accept-input']:
         cmd_args.append('--accept-input')
     if args['--no-center']:
         cmd_args.append('--no-center')
-    for name in ['app-name', 'completion-sep', 'history-key', 'home']:
+    for name in ['app-name', 'completion-sep', 'home']:
         if value := args.get(f'--{name}'):
             cmd_args.extend([f'--{name}', value])
     cmd_args.extend(['--input', input, '--title', title])

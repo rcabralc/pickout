@@ -138,7 +138,7 @@ def main(args):
         logger=sys.stderr if args['--debug'] else None,
         loop=args['--loop'],
         app_name=args['--app-name'],
-        input=args['--input'],
+        input=args['--input'] or '',
         limit=limit,
         center=not args['--no-center'],
         sep=args['--completion-sep'],

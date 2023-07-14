@@ -11,6 +11,9 @@ import re
 import sys
 
 
+PATTERN_TYPES = ['@*', '@/']
+
+
 class nulllogger:
     def write(self, *args):
         pass
@@ -31,12 +34,12 @@ def menu_slot(*types):
 
 
 class JsBridge(QObject):
-    cursor = pyqtSignal(int)
-    index = pyqtSignal(int)
-    input = pyqtSignal(str)
-    mode = pyqtSignal([str, str])
+    completion = pyqtSignal(str)
+    history = pyqtSignal(int, str)
     ready = pyqtSignal()
-    update = pyqtSignal([int, int, list])
+    selection = pyqtSignal(int, str)
+    setup = pyqtSignal(str)
+    update = pyqtSignal([int, int, int, list])
 
     menu = None
     is_ready = False
@@ -46,17 +49,11 @@ class JsBridge(QObject):
         self.is_ready = True
         self.ready.emit()
 
-    @menu_slot()
+    @menu_slot(str)
     def accept_input(): pass
 
     @menu_slot()
     def accept_selected(): pass
-
-    @menu_slot(int)
-    def alternate_pattern(): pass
-
-    @menu_slot()
-    def clear(): pass
 
     @menu_slot(str)
     def complete(): pass
@@ -64,35 +61,20 @@ class JsBridge(QObject):
     @menu_slot()
     def dismiss(): pass
 
-    @menu_slot(int)
-    def erase_word(): pass
-
-    @menu_slot(str)
+    @menu_slot(int, str)
     def filter(): pass
 
-    @menu_slot()
-    def filter_with_selected(): pass
+    @menu_slot(int, str)
+    def request_next_from_history(): pass
 
-    @menu_slot()
-    def redo(): pass
+    @menu_slot(int, str)
+    def request_prev_from_history(): pass
 
     @menu_slot()
     def select_next(): pass
 
     @menu_slot()
-    def select_next_from_history(): pass
-
-    @menu_slot()
     def select_prev(): pass
-
-    @menu_slot()
-    def select_prev_from_history(): pass
-
-    @menu_slot()
-    def set_home(): pass
-
-    @menu_slot()
-    def undo(): pass
 
 
 class MainView(QWebEngineView):
@@ -211,7 +193,15 @@ class App(QObject):
         self._view.setWindowTitle(title)
         self._set_menu(entries, **kw)
 
-    def _set_menu(self, entries, input='', limit=None, **kw):
+    def _set_menu(
+            self,
+            entries,
+            delimiters=[],
+            home_input='',
+            input='',
+            limit=None,
+            **kw
+        ):
         self._menu = Menu(
             entries,
             logger=self._logger,
@@ -222,8 +212,13 @@ class App(QObject):
         )
 
         def init_menu():
-            self._menu.set_input(input)
-            self._bridge.input.emit(input)
+            self._bridge.setup.emit(json.dumps(dict(
+                delimiters=delimiters,
+                home_input=home_input,
+                input=input,
+                pattern_types=PATTERN_TYPES,
+            )))
+            self._menu.filter(-1, input)
 
         def init_menu_single_shot():
             self._bridge.ready.disconnect(init_menu_single_shot)

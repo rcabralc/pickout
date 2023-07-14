@@ -1,339 +1,434 @@
 ;(function (global) {
-  "use strict";
-
   const { jQuery: $, QWebChannel, qt } = global
-  let entries
-  let input
 
-  $(function() {
-    const stubbedBridge = global.bridge = (function (console) {
-      // Stub bridge implementation.  The real one is inject by Qt.
-      return {
-        accept_input () { console.log('tell menu to accept current input') },
-        accept_selected () { console.log('tell menu to accept selected item') },
-        alternate_pattern (pos) { console.log('tell menu to alternate pattern of word under cursor at position', pos) },
-        clear () { console.log('tell menu to clear input') },
-        complete (text) { console.log('send input to menu for completing', text) },
-        dismiss () { console.log('tell menu to quit') },
-        erase_word (pos) { console.log('tell menu to erase backward word from position', pos) },
-        filter (text) { console.log('send input to menu for filtering', text) },
-        filter_with_selected () { console.log('get selected value from menu') },
-        redo () { console.log('tell menu to redo next undoable operation') },
-        select_next () { console.log('tell menu to select next item') },
-        select_next_from_history () { console.log('get next entry from history') },
-        select_prev () { console.log('tell menu to select previous item') },
-        select_prev_from_history () { console.log('get previous entry from history') },
-        set_home () { console.log('tell menu to set home') },
-        undo () { console.log('tell menu to undo last undoable operation') }
-      };
-    })(global.console)
+  const bridge = global.bridge = (function (console) {
+    // Stub bridge implementation.  The real one is inject by Qt.
+    return {
+      accept_input (input) { console.log('tell menu to accept input', input) },
+      accept_selected () { console.log('tell menu to accept selected item') },
+      complete (text) { console.log('send input to menu for completion', text) },
+      dismiss () { console.log('tell menu to quit') },
+      filter (seq, text) { console.log('send input to menu for filtering', seq, text) },
+      request_next_from_history () { console.log('get next entry from history') },
+      request_prev_from_history () { console.log('get previous entry from history') },
+      select_next () { console.log('tell menu to select next item') },
+      select_prev () { console.log('tell menu to select previous item') }
+    }
+  })(global.console)
 
-    global.filterKeypressDelay = 0
+  $(function () {
+    const counters = buildCounters($('#prompt-box .counters')[0])
+    const entries = buildEntries(
+      $('#entries'),
+      $('#entries-box'),
+      $('#scrollbar')
+    )
+    const input = buildInput($('#prompt-box .input')[0])
+    const menu = Object.keys(bridge).reduce((bridge, method) => {
+      bridge[method] = (...args) => global.bridge[method](...args)
+      return bridge
+    }, {})
+    const promptBox = buildPromptBox($('#prompt-box'), $('#prompt-box .prompt'))
+    const widget = buildWidget({ counters, entries, input, menu, promptBox })
 
-    const menu = (function (methods) {
-      let filterTimeout
-      let filterText
+    new QWebChannel(qt.webChannelTransport, function (channel) {
+      const bridge = global.bridge = channel.objects.bridge
 
-      const forwarded = methods.reduce((bridge, method) => {
-        bridge[method] = (...args) => global.bridge[method](...args)
-        return bridge
-      }, {})
+      bridge.setup.connect(widget.setup)
+      bridge.selection.connect(widget.select)
+      bridge.update.connect(widget.update)
+      bridge.history.connect(widget.history)
+      bridge.completion.connect(widget.completed)
 
-      forwarded.sendText = function (text, complete) {
-        const delay = global.filterKeypressDelay
+      bridge.js_ready()
+    })
+  })
 
-        if (complete) {
-          clearTimeout(filterTimeout)
-          filterTimeout = null
-          forwarded.complete(text)
-          return
-        }
+  function buildCounters (el) {
+    return {
+      update (filtered, total) { el.innerText = `${filtered}/${total}` }
+    }
+  }
 
-        // accumulate filter calls which are not complete
-        filterText = text
-        if (filterTimeout) return
+  function buildEntries ($el, $box, $sb) {
+    $(window).on('resize', adjustHeight)
+    $el.on('scroll', adjustScroll)
+    adjustHeight()
 
-        filterTimeout = setTimeout(() => {
-          filterTimeout = null
-          forwarded.filter(filterText)
-        }, delay)
-      }
+    return { select, update }
 
-      return forwarded
-    })(Object.keys(stubbedBridge))
-
-    input = (function() {
-      var self,
-          _$el,
-          currentMode
-
-      $(window).on('focus', function() { $el().focus(); });
-
-      return (self = {
-        setup: function(callback) { callback($el()); },
-        get: function() { return $el().val(); },
-        overwrite: function(value) {
-          if (value !== undefined) return $el().val(value).focus()
-          else return $el().focus()
-        },
-        setCursor (pos) {
-          const $field = $el()
-          const field = $field.get(0)
-          field.selectionStart = field.selectionEnd = pos
-          $field.focus().change()
-        },
-        eraseWord: function() { menu.erase_word(cursor()) },
-        alternatePattern: function() { menu.alternate_pattern(cursor()) },
-        updateMode: function(prompt, newMode) {
-          $('#prompt-box .prompt').text(prompt)
-
-          if (currentMode) {
-            $el().removeClass(currentMode + '-mode');
-          }
-
-          $el().addClass(newMode + '-mode').focus();
-          currentMode = newMode;
-        }
-      });
-
-      function $el() {
-        return (_$el = _$el || $('#prompt-box .input'));
-      }
-
-      function cursor() {
-        var field = $el().get(0);
-        return field.selectionDirection == 'backward' ?
-          field.selectionStart : field.selectionEnd;
-      }
-    })();
-
-    entries = (function() {
-      var _$box, _$el, _$sb;
-
-      return {
-        setup: function(callback) {
-          $(window).on('resize', adjustHeight);
-          adjustHeight();
-
-          if (callback) {
-            callback($el());
-          }
-        },
-
-        select: function(index) {
-          var $e = $el();
-          $e.find('li.selected').removeClass('selected');
-          ensureVisible(
-            $e.find('li:nth-child(' + (index + 1) + ')').addClass('selected')
-          );
-        },
-
-        update: function (filtered, total, items) {
-          // if (total > 300000) global.filterKeypressDelay = 150
-          // else if (total > 150000) global.filterKeypressDelay = 100
-          // else global.filterKeypressDelay = 0
-
-          $('#prompt-box .counters').text(`${filtered}/${total}`)
-
-          set(items)
-
-          if (items.length) {
-            $('#prompt-box').removeClass('not-found')
-          } else {
-            $('#prompt-box').addClass('not-found')
-          }
-
-          if (filtered > items.length) {
-            $('#prompt-box').addClass('over-limit')
-          } else {
-            $('#prompt-box').removeClass('over-limit')
-          }
-        }
-      }
-
-      function set (items) {
-        var entries = items.map(function(item) {
-          var $li = $(document.createElement('li'));
-
-          if (item.data.icon) $li.append(`<img src="${item.data.icon}" />`)
-
-          var title = '<p>' + item.partitions.map(function(partition) {
-            return partition.unmatched +
-              `<span class="match">${partition.matched}</span>`
-          }).join('') + '</p>'
-
-          $li.append(title)
-
-          if (item.data.subtext) {
-            $li.append(`<p class="subtext">${item.data.subtext}</p>`)
-          }
-
-          if (item.selected) $li.addClass('selected')
-
-          return $li
-        })
-
-        $el().html(entries)
-        adjustScroll()
-      }
-
-      function $box() {
-        return (_$box = _$box || $('#entries-box'));
-      }
-
-      function $el() {
-        return (_$el = _$el || (function() {
-          return $('#entries').on('scroll', adjustScroll);
-        })());
-      }
-
-      function $sb() {
-        return (_$sb = _$sb || $('#scrollbar'));
-      }
-
-      function ensureVisible($item) {
-        var top = $item.offset().top - $el().offset().top,
-            eh = $box().height(),
-            bottom = top + $item.outerHeight() - eh,
-            current = $el().scrollTop(),
-            scroll = current + (bottom >= 0 ? bottom : (top < 0 ? top : 0));
-
-        $el().scrollTop(scroll);
-      }
-
-      function adjustHeight() {
-        var height = $(window).height() - $box().offset().top;
-        $box().height(height);
-        $sb().outerHeight(height);
-        adjustScroll();
-      }
-
-      function adjustScroll() {
-        var visibleHeight = $box().height(), scroll = $el().scrollTop(),
-            totalHeight = getTotalHeight();
-
-        if (totalHeight > visibleHeight) {
-          var thumbHeight = 100 * visibleHeight / totalHeight,
-              top = 100 * scroll / totalHeight;
-
-          $sb().find('.thumb').show().css({
-            height: thumbHeight + '%',
-            top: top + '%',
-          });
-        } else {
-          $sb().find('.thumb').hide().css({ height: 0, top: 0 });
-        }
-      }
-
-      function getTotalHeight() {
-        return Array.prototype.slice.call(
-          $el().find('> li').map(function(_, el) {
-            return $(el).outerHeight();
-          })
-        ).reduce(function(a, b) { return a + b; }, 0);
-      }
-    })();
-
-    const keyUpHandlers = {}
-    const keyDownHandlers = {}
-
-    keyUpHandlers.Enter = menu.accept_selected
-    keyUpHandlers.Escape = menu.dismiss
-    keyUpHandlers['Control-Enter'] = menu.accept_input
-    keyUpHandlers['Control-Space'] = keyUpHandlers.Escape
-    keyUpHandlers.Tab = function() {
-      menu.sendText(input.get(), true)
+    function adjustHeight() {
+      const height = $(window).height() - $box.offset().top
+      $box.height(height)
+      $sb.outerHeight(height)
+      adjustScroll()
     }
 
-    ;['P', 'N'].forEach(function(k) {
-      keyUpHandlers['Control-' + k] = function() { }
-    })
+    function adjustScroll() {
+      const visibleHeight = $box.height()
+      const scroll = $el.scrollTop()
+      const totalHeight = getTotalHeight()
 
-    keyDownHandlers['Control-P'] = menu.select_prev_from_history
-    keyDownHandlers['Control-N'] = menu.select_next_from_history
-    keyDownHandlers['Control-H'] = menu.set_home
-    keyDownHandlers['Control-J'] = menu.select_next
-    keyDownHandlers['Control-K'] = menu.select_prev
-    keyDownHandlers['Control-M'] = menu.filter_with_selected
-    keyDownHandlers['Control-U'] = menu.clear
-    keyDownHandlers['Control-W'] = input.eraseWord
-    keyDownHandlers['Control-Y'] = menu.redo
-    keyDownHandlers['Control-Z'] = menu.undo
-    keyDownHandlers['Alt-P'] = input.alternatePattern
+      if (totalHeight > visibleHeight) {
+        const thumbHeight = 100 * visibleHeight / totalHeight
+        const top = 100 * scroll / totalHeight
 
-    input.setup(function($input) {
-      $input.focus();
+        $sb.find('.thumb').show().css({
+          height: thumbHeight + '%',
+          top: top + '%',
+        })
+      } else {
+        $sb.find('.thumb').hide().css({ height: 0, top: 0 })
+      }
+    }
+
+    function ensureVisible($item) {
+      const top = $item.offset().top - $el.offset().top
+      const eh = $box.height()
+      const bottom = top + $item.outerHeight() - eh
+      const current = $el.scrollTop()
+      $el.scrollTop(current + (bottom >= 0 ? bottom : (top < 0 ? top : 0)))
+    }
+
+    function getTotalHeight() {
+      const heights = $el.find('> li').map((_, el) => $(el).outerHeight())
+      return Array.from(heights).reduce((a, b) => a + b, 0)
+    }
+
+    function select (index) {
+      $el.find('li.selected').removeClass('selected');
+      ensureVisible(
+        $el.find('li:nth-child(' + (index + 1) + ')').addClass('selected')
+      )
+    }
+
+    function set (items) {
+      const entries = items.map(item => {
+        const $li = $(document.createElement('li'))
+
+        if (item.data.icon) $li.append(`<img src="${item.data.icon}" />`)
+
+        const title = '<p>' + item.partitions.map(({ unmatched, matched }) =>
+          unmatched + `<span class="match">${matched}</span>`
+        ).join('') + '</p>'
+
+        $li.append(title)
+
+        if (item.data.subtext) {
+          $li.append(`<p class="subtext">${item.data.subtext}</p>`)
+        }
+
+        if (item.selected) $li.addClass('selected')
+
+        return $li
+      })
+
+      $el.html(entries)
+      adjustScroll()
+    }
+
+    function update (_filtered, _total, items) { set(items) }
+  }
+
+  function buildInput (el) {
+    let delimiters = []
+    let historyData
+    let patternTypes = []
+
+    $(window).on('focus', focus)
+    el.focus()
+
+    const inputStack = (function () {
+      let pos = 0
+      let inputs = []
+
+      return { push, redo, undo }
+
+      function push (oldValue, newValue) {
+        inputs.splice(pos++, inputs.length, oldValue, newValue)
+      }
+
+      function redo () { return pos < inputs.length - 1 ? inputs[++pos] : null }
+      function undo () { return pos ? inputs[--pos] : null }
+    })()
+
+    return {
+      alternatePattern,
+      eraseWord,
+      get,
+      getHistoryData,
+      redo,
+      resetHistoryData,
+      set,
+      setHistoryData,
+      setup (params) {
+        delimiters = params.delimiters || []
+        patternTypes = params.pattern_types || []
+        el.value = params.input || ''
+        resetHistoryData()
+      },
+      undo
+    }
+
+    function alternatePattern () {
+      const { word, start, end } = wordUnderCursor([' '])
+      let i = 0
+      let found = false
+
+      while (i < patternTypes.length) if (word.startsWith(patternTypes[i++])) {
+        found = true
+        break
+      }
+      const nextPattern = found && patternTypes[i] || ''
+      const currPattern = found && patternTypes[i - 1] || ''
+
+      replace(nextPattern + word.slice(currPattern.length), start, end)
+    }
+
+    function eraseWord () {
+      const end = getCursor() - 1
+      const start = find(get(), end, -1, delimiters)
+      replace('', start, end)
+    }
+
+    function find (value, index, step, delimiters) {
+      while (
+        index + step >= 0 && index + step < value.length &&
+        !delimiters.includes(value[index + step])
+      ) index = index + step
+      return index
+    }
+
+    function focus (event) { if (!event || event?.target === el) el.focus() }
+
+    function get () { return el.value }
+
+    function getCursor () {
+      return el.selectionDirection == 'backward'
+        ? el.selectionStart
+        : el.selectionEnd
+    }
+
+    function getHistoryData () { return historyData }
+
+    function redo () { write(inputStack.redo()) }
+
+    function replace (str, start, end) {
+      const value = get()
+      const newValue = value.slice(0, start) + str + value.slice(end + 1)
+      set(newValue)
+      el.selectionStart = start + str.length
+      el.selectionEnd = el.selectionStart
+    }
+
+    function resetHistoryData () {
+      historyData = { index: -1, value: el.value }
+    }
+
+    function set (value) {
+      if (value == null) return
+      inputStack.push(get(), write(value))
+    }
+
+    function setHistoryData ({ index, value }) {
+      historyData.index = index
+      write(value)
+    }
+
+    function undo () { write(inputStack.undo()) }
+
+    function wordUnderCursor (delimiters) {
+      const value = get()
+      const start = find(value, getCursor(), -1, delimiters)
+      const end = find(value, start, 1, delimiters)
+      return { start: start, end: end, word: value.slice(start, end + 1) }
+    }
+
+    function write (value) {
+      if (value != null) el.value = value
+      el.focus()
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+      return value
+    }
+  }
+
+  function buildPromptBox ($box, $prompt) {
+    return {
+      setHistoryMode () {
+        $prompt.removeClass('insert-mode').addClass('history-mode').text('◂')
+      },
+      setInserMode () {
+        $prompt.removeClass('history-mode').addClass('insert-mode').text('▸')
+      },
+      update (filtered, _total, items) {
+        if (items.length) {
+          $box.removeClass('not-found')
+        } else {
+          $box.addClass('not-found')
+        }
+
+        if (filtered > items.length) {
+          $box.addClass('over-limit')
+        } else {
+          $box.removeClass('over-limit')
+        }
+      }
+    }
+  }
+
+  function buildWidget ({ counters, entries, input, menu, promptBox }) {
+    const filterKeypressDelay = 0
+
+    let filterText = ''
+    let filterTimeout = null
+    let home = ''
+    let selection
+    let seq = -1
+
+    setupEventHandlers()
+
+    return { completed, history, setup, select, update }
+
+    function completed (text) { input.set(text) }
+
+    function filter ({ complete, inputEvent }) {
+      if (inputEvent) {
+        input.resetHistoryData()
+        promptBox.setInserMode()
+      }
+
+      const text = input.get()
+      const delay = filterKeypressDelay
+
+      if (complete) {
+        clearTimeout(filterTimeout)
+        filterTimeout = null
+        menu.complete(text)
+        return
+      }
+
+      // accumulate filter calls which are not complete
+      filterText = text
+      if (filterTimeout) return
+
+      filterTimeout = setTimeout(() => {
+        filterTimeout = null
+        menu.filter(++seq, filterText)
+      }, delay)
+    }
+
+    function history (index, value) {
+      input.setHistoryData({ index, value })
+      promptBox.setHistoryMode()
+    }
+
+    function select (index, value) {
+      selection = { index, value }
+      entries.select(index)
+    }
+
+    function setup (json) {
+      const params = JSON.parse(json)
+      home = params.home_input
+      input.setup(params)
+      promptBox.setInserMode()
+    }
+
+    function setupEventHandlers () {
+      const keyUpHandlers = {}
+      const keyDownHandlers = {}
+
+      keyUpHandlers.Enter = menu.accept_selected
+      keyUpHandlers.Escape = menu.dismiss
+      keyUpHandlers['Control-Enter'] = acceptInput
+      keyUpHandlers['Control-Space'] = keyUpHandlers.Escape
+      keyUpHandlers.Tab = complete
+
+      keyDownHandlers['Control-P'] = requestPrevFromHistory
+      keyDownHandlers['Control-N'] = requestNextFromHistory
+      keyDownHandlers['Control-H'] = setHome
+      keyDownHandlers['Control-J'] = menu.select_next
+      keyDownHandlers['Control-K'] = menu.select_prev
+      keyDownHandlers['Control-M'] = filterWithSelected
+      keyDownHandlers['Control-U'] = clearInput
+      keyDownHandlers['Control-W'] = input.eraseWord
+      keyDownHandlers['Control-Y'] = input.redo
+      keyDownHandlers['Control-Z'] = input.undo
+      keyDownHandlers['Alt-P'] = input.alternatePattern
+
+      function acceptInput () { menu.accept_input(input.get()) }
+      function clearInput () { input.set('') }
+      function complete () { filter({ complete: true, inputEvent: true }) }
+      function filterWithSelected () { input.set(selection.value) }
+      function handleInput () { filter({ complete: false, inputEvent: true }) }
+      function handleChange () { filter({ complete: false, inputEvent: false }) }
+      function requestNextFromHistory () {
+        const { index, value } = input.getHistoryData()
+        menu.request_next_from_history(index, value)
+      }
+      function requestPrevFromHistory () {
+        const { index, value } = input.getHistoryData()
+        menu.request_prev_from_history(index, value)
+      }
+      function setHome () { if (home) input.set(home) }
+
+      function swallow(event, callback) {
+        event.preventDefault()
+        event.stopPropagation();
+        callback()
+        return false
+      }
+
+      function key(event) {
+        let mod = ''
+
+        if (event.ctrlKey) mod += 'Control-'
+        if (event.altKey) mod += 'Alt-'
+        if (event.shiftKey) mod += 'Shift-'
+        if (event.metaKey) mod += 'Meta-'
+
+        return mod + keyName(event.keyCode)
+      }
+
+      function keyName(code) {
+        switch (code) {
+          case 8:  return 'Backspace'
+          case 9:  return 'Tab'
+          case 13: return 'Enter'
+          case 16: return 'Shift'
+          case 17: return 'Control'
+          case 18: return 'Alt'
+          case 27: return 'Escape'
+          case 32: return 'Space'
+          case 81: return 'Meta'
+          default: return String.fromCharCode(code).toUpperCase()
+        }
+      }
+
       $(document).on({
-        'keydown': function(e) {
-          var handler = keyDownHandlers[key(e)];
-          if (handler) return swallow(e, handler);
+        'keydown': function (e) {
+          const handler = keyDownHandlers[key(e)]
+          if (handler) return swallow(e, handler)
         },
-
-        'keyup': function(e) {
+        'keyup': function (e) {
           (keyUpHandlers[key(e)] || (() => {}))()
         },
-
-        'input': defaultHandler,
-
-        'change': defaultHandler,
-
-        'blur': function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          return false;
-        },
-      });
-    });
-
-    entries.setup();
-
-    function defaultHandler() {
-      menu.sendText(input.get(), false);
+        'input': handleInput,
+        'change': handleChange,
+        'blur': function (e) {
+          e.preventDefault()
+          e.stopPropagation()
+          return false
+        }
+      })
     }
 
-    function swallow(event, callback) {
-      event.preventDefault();
-      event.stopPropagation();
-      callback();
-      return false;
+    function update (receivedSeq, filtered, total, items) {
+      if (receivedSeq !== seq) return
+
+      counters.update(filtered, total, items)
+      entries.update(filtered, total, items)
+      promptBox.update(filtered, total, items)
     }
-
-    function key(event) {
-      var mod = '';
-
-      if (event.ctrlKey) mod += 'Control-';
-      if (event.altKey) mod += 'Alt-';
-      if (event.shiftKey) mod += 'Shift-';
-      if (event.metaKey) mod += 'Meta-';
-
-      return mod + keyName(event.keyCode);
-    }
-
-    function keyName(code) {
-      switch (code) {
-        case 8:  return 'Backspace';
-        case 9:  return 'Tab';
-        case 13: return 'Enter';
-        case 16: return 'Shift';
-        case 17: return 'Control';
-        case 18: return 'Alt';
-        case 27: return 'Escape';
-        case 32: return 'Space';
-        case 81: return 'Meta';
-        default: return String.fromCharCode(code).toUpperCase();
-      }
-    }
-  })
-
-  new QWebChannel(qt.webChannelTransport, function (channel) {
-    const bridge = global.bridge = channel.objects.bridge
-
-    bridge.cursor.connect(input.setCursor)
-    bridge.index.connect(entries.select)
-    bridge.input.connect(input.overwrite)
-    bridge.mode.connect(input.updateMode)
-    bridge.update.connect(entries.update)
-
-    bridge.js_ready()
-  })
+  }
 })(window)
