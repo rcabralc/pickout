@@ -165,7 +165,7 @@
         delimiters = params.delimiters || []
         patternTypes = params.pattern_types || []
         el.value = params.input || ''
-        resetHistoryData()
+        el.dispatchEvent(new Event('input', { bubbles: true }))
       },
       undo
     }
@@ -331,7 +331,6 @@
       const params = JSON.parse(json)
       home = params.home_input
       input.setup(params)
-      promptBox.setInserMode()
     }
 
     function setupEventHandlers () {

@@ -218,7 +218,6 @@ class App(QObject):
                 input=input,
                 pattern_types=PATTERN_TYPES,
             )))
-            self._menu.filter(-1, input)
 
         def init_menu_single_shot():
             self._bridge.ready.disconnect(init_menu_single_shot)
