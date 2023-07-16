@@ -11,10 +11,10 @@ Usage:
             [--input=<input>]
             [--json-output]
             [--limit=<limit>]
-            [--loop]
             [--no-center]
             [--title=<title>]
             [--word-delimiters=<delimiters>]
+    pickout --loop [--app-name=<name>] [--json-output] [--no-center]
 
 Options:
     --accept-input
@@ -63,8 +63,10 @@ Options:
         wait new items on STDIN after printing a selection to STDOUT, in a
         loop.
 
-        Items are read from STDIN until a blank line is read (which is
-        ignored).  A selection is written to STDOUT, followed by a blank line.
+        Options are given in STDIN as a JSON object in a single line.  Next
+        lines are the items, until a blank line is read (which is ignored).
+
+        A selection is written to STDOUT, followed by a blank line.
         If no selection is made, a single blank line is printed.
 
     --no-center
@@ -121,7 +123,7 @@ Key bindings:
         Undo/redo operations like erase word or erase the whole input.
 """
 
-from app import run, read_io
+from app import run
 from docopt import docopt
 
 import json
@@ -129,25 +131,20 @@ import sys
 
 
 def main(args):
-    limit = args['--limit']
-    limit = int(limit) if limit and int(limit) >= 0 else None
-    entries = read_io(sys.stdin)
-
     return run(
-        entries,
-        logger=sys.stderr if args['--debug'] else None,
-        loop=args['--loop'],
-        app_name=args['--app-name'],
-        input=args['--input'] or '',
-        limit=limit,
-        center=not args['--no-center'],
-        sep=args['--completion-sep'],
-        delimiters=list((args['--word-delimiters'] or '')),
-        history_key=args['--history-key'],
         accept_input=args['--accept-input'],
-        home_input=args['--home'],
+        app_name=args['--app-name'],
+        center=not args['--no-center'],
+        completion_sep=args['--completion-sep'],
+        debug=args['--debug'],
+        history_key=args['--history-key'],
+        home=args['--home'],
+        input=args['--input'],
         json_output=args['--json-output'],
-        title=args['--title']
+        limit=args['--limit'],
+        loop=args['--loop'],
+        title=args['--title'],
+        word_delimiters=args['--word-delimiters']
     )
 
 

@@ -76,11 +76,6 @@ import pathspec
 import sys
 
 
-pickout_default_args = [
-    '--limit', '20',
-    '--loop',
-    '--word-delimiters', os.path.sep
-]
 rg_default_args = [which('rg'), '--files', '--follow']
 encoding = 'utf-8'
 
@@ -111,9 +106,9 @@ def main(args):
         path += os.path.sep
 
     title = args['--title'] or f'Select file from {root}'
-    key = f'file://{root}'
+    home=args['--home']
     pickout = Popen(
-        pickout_cmd_args(args, key, input=path, title=title),
+        pickout_cmd_args(args),
         bufsize=0,
         stdin=PIPE,
         stdout=PIPE,
@@ -127,6 +122,13 @@ def main(args):
                 globs=globs,
                 no_ignore=args['--no-ignore']
             )
+
+            title = args['--title'] or f'Select file from {root}'
+            pickout_opts = json.dumps(
+                pickout_loop_args(args, root, home=home, input=path, title=title)
+            )
+            pickout.stdin.write((pickout_opts + '\n').encode(encoding))
+            pickout.stdin.flush()
 
             choice, choice_in_results = choose(
                 root,
@@ -156,15 +158,6 @@ def main(args):
                 path = ''
 
             globs = original_globs
-            title = args['--title'] or f'Select file from {root}'
-            pickout_opts = json.dumps(dict(
-                accept_input=args['--accept-input'],
-                history_key=f'file://{root}',
-                input=path,
-                title=title
-            ))
-            pickout.stdin.write((pickout_opts + '\n').encode(encoding))
-            pickout.stdin.flush()
 
         pickout.terminate()
 
@@ -179,17 +172,30 @@ def globs_exclude(globs, path):
     return spec.match_file(path)
 
 
-def pickout_cmd_args(args, key, input='', title=''):
-    cmd_args = ['pickout', *pickout_default_args, '--history-key', key]
-    if args['--accept-input']:
-        cmd_args.append('--accept-input')
-    if args['--no-center']:
+def pickout_cmd_args(args):
+    cmd_args = ['pickout', '--loop']
+    if value := args['--no-center']:
         cmd_args.append('--no-center')
-    for name in ['app-name', 'completion-sep', 'home']:
-        if value := args.get(f'--{name}'):
-            cmd_args.extend([f'--{name}', value])
-    cmd_args.extend(['--input', input, '--title', title])
+    if value := args['--app-name']:
+        cmd_args.extend(['--app-name', value])
     return cmd_args
+
+
+def pickout_loop_args(args, root, home=None, input='', title=''):
+    key=f'file://{root}'
+    loop_args = dict(
+        history_key=key,
+        limit=20,
+        input=input,
+        title=title,
+        word_delimiters=os.path.sep
+    )
+    loop_args['accept_input'] = args['--accept-input']
+    if value := args['--completion-sep']:
+        loop_args['completion_sep'] = value
+    if home:
+        loop_args['home'] = home
+    return loop_args
 
 
 def choose(root, pickout, rg_opts, add_pardir=True):

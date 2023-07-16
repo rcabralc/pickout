@@ -87,11 +87,7 @@ class MainView(QWebEngineView):
             QApplication.font().family()
         )
 
-    def setWindowTitle(self, title=None):
-        super(MainView, self).setWindowTitle(title or 'pickout')
-
-    def restore(self, title=None, center=True):
-        self.setWindowTitle(title)
+    def restore(self, center=True):
         self.activateWindow()
         self.showNormal()
         if center:
@@ -143,14 +139,16 @@ def interpolate_html(template, palette):
 class App(QObject):
     picked = pyqtSignal(list)
     finished = pyqtSignal()
-    loop_finished = pyqtSignal()
+    pick = pyqtSignal()
 
-    def __init__(self, app_name='pickout', logger=None):
+    def __init__(self, app_name='pickout', center=None, json_output=False, loop=False):
         super(App, self).__init__()
         self.app = QApplication(sys.argv)
         self.app.setApplicationName(app_name)
         self.app.setDesktopFileName(f'{app_name}.desktop')
-        self._logger = logger
+        self._app_name = app_name
+        self._center = center
+        self._json_output = json_output
 
         self.app.aboutToQuit.connect(self.finished.emit)
 
@@ -178,19 +176,26 @@ class App(QObject):
             channel.registerObject('bridge', self._bridge)
             sources = self._jquery_source + self._frontend_source
             page.runJavaScript(sources)
-
         view.loadFinished.connect(on_load_finished)
 
-    def setup(self, entries, title=None, center=True, **kw):
-        self._view.restore(title=title, center=center)
-        self._set_menu(entries, **kw)
+        def picked(selection):
+            if json_output:
+                sys.stdout.write(json.dumps(selection, cls=AsJSONEncoder))
+                sys.stdout.write(os.linesep)
+            else:
+                for entry in selection:
+                    sys.stdout.write(entry.value + os.linesep)
+                if loop:
+                    sys.stdout.write(os.linesep)
+            sys.stdout.flush()
+            if loop:
+                self.pick.emit()
+            else:
+                self.quit()
+        self.picked.connect(picked)
 
-    def hide(self):
-        self._view.hide()
-        self._menu = None
-
-    def reset(self, entries, title=None, center=None, **kw):
-        self._view.setWindowTitle(title)
+    def reset(self, entries, title=None, **kw):
+        self._view.setWindowTitle(title or self._app_name)
         self._set_menu(entries, **kw)
 
     def _set_menu(
@@ -204,7 +209,6 @@ class App(QObject):
         ):
         self._menu = Menu(
             entries,
-            logger=self._logger,
             limit=limit,
             bridge=self._bridge,
             picked=self.picked,
@@ -231,23 +235,52 @@ class App(QObject):
         self._bridge.menu = self._menu
 
     def exec(self):
+        self._view.restore(center=self._center)
         self.app.exec()
 
     def quit(self):
         self.app.quit()
 
 
-class RefreshWorker(QObject):
-    def __init__(self, app, options):
-        super(RefreshWorker, self).__init__()
+class Picker(QObject):
+    def __init__(self, app, loop=False, **options):
+        super(Picker, self).__init__()
         self._app = app
-        self._options = options
+        self._loop = loop
+        self._options = self._fix_options(**options)
 
     def __call__(self):
-        options = json.loads(sys.stdin.readline())
-        self._options.update(options)
-        items = read_io(sys.stdin)
+        if self._loop:
+            options = json.loads(sys.stdin.readline())
+            self._options.update(self._fix_options(**options))
+        items = self._read_io(sys.stdin)
         self._app.reset(items, **self._options)
+
+    def _read_io(self, io):
+        for line in iter(io.readline, ''):
+            if (line := line.rstrip()):
+                yield line
+                continue
+            break
+
+    def _fix_options(self,
+                     completion_sep='',
+                     debug=False,
+                     home=None,
+                     limit=None,
+                     word_delimiters=None,
+                     **kw):
+        limit = int(limit) if limit and int(limit) >= 0 else None
+        logger = sys.stderr if debug else None
+
+        return dict(
+            delimiters=list(word_delimiters or ''),
+            home_input=home,
+            limit=limit,
+            logger=logger,
+            sep=completion_sep,
+            **kw
+        )
 
 
 class AsJSONEncoder(json.JSONEncoder):
@@ -257,44 +290,14 @@ class AsJSONEncoder(json.JSONEncoder):
         return super(AsJSONEncoder, self).default(o)
 
 
-def read_io(io):
-    for line in iter(io.readline, ''):
-        if (line := line.rstrip()):
-            yield line
-            continue
-        break
+def run(app_name=None, json_output=False, loop=False, center=True, **kw):
+    app = App(app_name=app_name, center=center, json_output=json_output, loop=loop)
 
+    picker = Picker(app, loop=loop, **kw)
+    picker_thread = QThread()
+    picker.moveToThread(picker_thread)
 
-def run(items, json_output=False, logger=None, loop=False, **kw):
-    app_options = dict(logger=logger)
+    app.pick.connect(picker)
+    app.pick.emit()
 
-    if 'app_name' in kw:
-        app_options['app_name'] = kw['app_name']
-        del kw['app_name']
-
-    app = App(**app_options)
-
-    def picked(selection):
-        if json_output:
-            sys.stdout.write(json.dumps(selection, cls=AsJSONEncoder))
-            sys.stdout.write(os.linesep)
-        else:
-            for entry in selection:
-                sys.stdout.write(entry.value + os.linesep)
-            if loop:
-                sys.stdout.write(os.linesep)
-        sys.stdout.flush()
-        if loop:
-            app.loop_finished.emit()
-        else:
-            app.quit()
-
-    app.picked.connect(picked)
-    app.setup(items, **kw)
-
-    if loop:
-        refresh_worker = RefreshWorker(app, kw)
-        refresh_thread = QThread()
-        refresh_worker.moveToThread(refresh_thread)
-        app.loop_finished.connect(refresh_worker)
     return app.exec()
