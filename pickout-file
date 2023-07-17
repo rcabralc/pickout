@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python
 """Pickout a file from a directory using pickout and rg.
 
 Usage:
@@ -77,7 +77,6 @@ import sys
 
 
 rg_default_args = [which('rg'), '--files', '--follow']
-encoding = 'utf-8'
 
 
 def main(args):
@@ -115,51 +114,38 @@ def main(args):
         stderr=sys.stderr
     )
 
+    hidden = args['--hidden']
+    no_ignore = args['--no-ignore']
     with pickout:
         while True:
-            rg_opts = dict(
-                hidden=args['--hidden'],
-                globs=globs,
-                no_ignore=args['--no-ignore']
-            )
+            with grep(root, globs, hidden, no_ignore) as rg:
+                rg_out = rg.stdout.read()
+                results = set(iter(io.BytesIO(rg_out).readline, b''))
 
-            title = args['--title'] or f'Select file from {root}'
-            pickout_opts = json.dumps(
-                pickout_loop_args(args, root, home=home, input=path, title=title)
-            )
-            pickout.stdin.write((pickout_opts + '\n').encode(encoding))
-            pickout.stdin.flush()
+                add_pardir = root != initial_root
+                choice = choose(pickout, rg_out, args, root, home, path, add_pardir)
 
-            choice, choice_in_results = choose(
-                root,
-                pickout,
-                rg_opts,
-                add_pardir=root != initial_root
-            )
+                if not choice.rstrip('\n'):
+                    break
 
-            if not choice:
-                break
+                path = os.path.normpath(os.path.join(root, choice.rstrip('\n')))
 
-            choice = choice.decode(encoding).strip(os.linesep)
-            path = os.path.normpath(os.path.join(root, choice))
+                if not os.path.isdir(path):
+                    print(path)
+                    break
 
-            if not os.path.isdir(path):
-                print(path)
-                break
-
-            if choice_in_results:
-                root = initial_root
-                path = os.path.relpath(path, root) + os.path.sep
-                if (path == os.curdir + os.path.sep or
-                        path == os.pardir + os.path.sep):
+                if choice.encode('utf-8') in results:
+                    root = initial_root
+                    path = os.path.relpath(path, root) + os.path.sep
+                    if (path == os.curdir + os.path.sep or
+                            path == os.pardir + os.path.sep):
+                        path = ''
+                else:
+                    root = path
                     path = ''
-            else:
-                root = path
-                path = ''
 
-            globs = original_globs
-
-        pickout.terminate()
+                globs = original_globs
+    pickout.terminate()
 
 
 def glob_excludes(glob, path):
@@ -181,8 +167,20 @@ def pickout_cmd_args(args):
     return cmd_args
 
 
-def pickout_loop_args(args, root, home=None, input='', title=''):
-    key=f'file://{root}'
+def grep(root, globs, hidden=False, no_ignore=False):
+    args = [which('rg'), '--files', '--follow']
+    if hidden:
+        args.append('--hidden')
+    if no_ignore:
+        args.append('--no-ignore')
+    for glob in globs:
+        args.extend(['--glob', glob])
+    return Popen(args, cwd=root, stderr=DEVNULL, stdout=PIPE)
+
+
+def choose(pickout, rg_out, args, root, home=None, input='', add_pardir=True):
+    title = args['--title'] or f'Select file from {root}'
+    key = f'file://{root}'
     loop_args = dict(
         history_key=key,
         limit=20,
@@ -195,46 +193,24 @@ def pickout_loop_args(args, root, home=None, input='', title=''):
         loop_args['completion_sep'] = value
     if home:
         loop_args['home'] = home
-    return loop_args
 
-
-def choose(root, pickout, rg_opts, add_pardir=True):
-    rg = Popen(rg_args(**rg_opts), cwd=root, stderr=DEVNULL, stdout=PIPE)
-    linesep = os.linesep.encode(encoding)
+    pickout.stdin.write(json.dumps(loop_args).encode('utf-8') + b'\n')
 
     if add_pardir:
         # If the parent directory is not root, offer the option to access it.
         if len(root.split(os.path.sep)) > 2:
-            pickout.stdin.write(os.pardir.encode(encoding) + linesep)
+            pickout.stdin.write((os.pardir + '\n').encode('utf-8'))
 
-    rg_out = rg.stdout.read()
-    pickout.stdin.write(rg_out.rstrip(linesep) + linesep + linesep)
+    pickout.stdin.write(rg_out + b'\n')
 
-    results = set()
-    for line in iter(io.StringIO(rg_out.decode(encoding)).readline, ''):
-        results.add(line.rstrip())
-
-    with rg:
-        pass
-
-    choice = ''
+    choice = b''
     for line in pickout.stdout:
-        if (line := line.rstrip()):
-            choice = line
+        if (line := line.rstrip(b'\n')):
+            choice = line + b'\n'
             continue
         break
-    return choice, choice in results
 
-
-def rg_args(hidden=False, no_ignore=False, globs=[]):
-    args = [*rg_default_args]
-    if hidden:
-        args.append('--hidden')
-    if no_ignore:
-        args.append('--no-ignore')
-    for glob in globs:
-        args.extend(['--glob', glob])
-    return args
+    return choice.decode('utf-8')
 
 
 if __name__ == '__main__':

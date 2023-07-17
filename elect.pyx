@@ -14,7 +14,6 @@ import array
 import heapq
 import operator
 import re
-import sre_constants
 import sys
 import unicodedata
 
@@ -281,7 +280,7 @@ class RegexPattern(Pattern):
             self._can_match = True
             try:
                 self._re = re.compile(self.value)
-            except sre_constants.error:
+            except re.error:
                 if not ignore_bad_patterns:
                     raise
                 self._can_match = False

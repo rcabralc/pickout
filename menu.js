@@ -35,10 +35,10 @@
       const bridge = global.bridge = channel.objects.bridge
 
       bridge.setup.connect(widget.setup)
-      bridge.selection.connect(widget.select)
-      bridge.update.connect(widget.update)
+      bridge.selected.connect(widget.select)
+      bridge.filtered.connect(widget.update)
       bridge.history.connect(widget.history)
-      bridge.completion.connect(widget.completed)
+      bridge.completed.connect(widget.completed)
 
       bridge.js_ready()
     })
@@ -96,7 +96,7 @@
     }
 
     function select (index) {
-      $el.find('li.selected').removeClass('selected');
+      $el.find('li.selected').removeClass('selected')
       ensureVisible(
         $el.find('li:nth-child(' + (index + 1) + ')').addClass('selected')
       )
@@ -163,6 +163,7 @@
       setHistoryData,
       setup (params) {
         delimiters = params.delimiters || []
+        if (!delimiters.includes(' ')) delimiters.push(' ')
         patternTypes = params.pattern_types || []
         el.value = params.input || ''
         el.dispatchEvent(new Event('input', { bubbles: true }))
@@ -225,9 +226,9 @@
       historyData = { index: -1, value: el.value }
     }
 
-    function set (value) {
+    function set (value, { event = 'input' } = {}) {
       if (value == null) return
-      inputStack.push(get(), write(value))
+      inputStack.push(get(), write(value, { event }))
     }
 
     function setHistoryData ({ index, value }) {
@@ -244,10 +245,10 @@
       return { start: start, end: end, word: value.slice(start, end + 1) }
     }
 
-    function write (value) {
+    function write (value, { event = 'change' } = {}) {
       if (value != null) el.value = value
       el.focus()
-      el.dispatchEvent(new Event('change', { bubbles: true }))
+      el.dispatchEvent(new Event(event, { bubbles: true }))
       return value
     }
   }
@@ -277,11 +278,10 @@
   }
 
   function buildWidget ({ counters, entries, input, menu, promptBox }) {
-    const filterKeypressDelay = 0
-
     let filterText = ''
     let filterTimeout = null
     let home = ''
+    let pending = -1
     let selection
     let seq = -1
 
@@ -298,7 +298,6 @@
       }
 
       const text = input.get()
-      const delay = filterKeypressDelay
 
       if (complete) {
         clearTimeout(filterTimeout)
@@ -313,8 +312,9 @@
 
       filterTimeout = setTimeout(() => {
         filterTimeout = null
+        pending++
         menu.filter(++seq, filterText)
-      }, delay)
+      }, pending * 500)
     }
 
     function history (index, value) {
@@ -358,7 +358,9 @@
       function acceptInput () { menu.accept_input(input.get()) }
       function clearInput () { input.set('') }
       function complete () { filter({ complete: true, inputEvent: true }) }
-      function filterWithSelected () { input.set(selection.value) }
+      function filterWithSelected () {
+        input.set(selection.value, { event: 'change' })
+      }
       function handleInput () { filter({ complete: false, inputEvent: true }) }
       function handleChange () { filter({ complete: false, inputEvent: false }) }
       function requestNextFromHistory () {
@@ -423,6 +425,7 @@
     }
 
     function update (receivedSeq, filtered, total, items) {
+      pending--
       if (receivedSeq !== seq) return
 
       counters.update(filtered, total, items)

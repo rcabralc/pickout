@@ -4,20 +4,20 @@ from collections import deque
 class Cache:
     __entries = None
 
-    def __init__(self, entries, refilter):
+    def __init__(self, entries, refilter=None):
         self._cache = {}
         self._entries_it = entries
-        self._refilter = refilter
+        self.refilter = refilter
 
     def filter(self, input):
         key = _Key(input)
         hit = self._find(key)
 
         if not hit:
-            return self._update(key, self._refilter(input, self._entries()))
+            return self._update(key, self.refilter(input, self._entries()))
         if hit.key == key:
             return hit.result
-        return self._update(key, self._refilter(input, hit.entries))
+        return self._update(key, self.refilter(input, hit.entries))
 
     def __len__(self):
         if self.__entries is None:
