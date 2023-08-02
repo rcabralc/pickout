@@ -39,6 +39,7 @@
       bridge.filtered.connect(widget.update)
       bridge.history.connect(widget.history)
       bridge.completed.connect(widget.completed)
+      bridge.picked.connect(widget.picked)
 
       bridge.js_ready()
     })
@@ -133,6 +134,7 @@
   function buildInput (el) {
     let delimiters = []
     let historyData
+    let isReady = false
     let patternTypes = []
 
     $(window).on('focus', focus)
@@ -157,6 +159,7 @@
       eraseWord,
       get,
       getHistoryData,
+      isReady () { return isReady },
       redo,
       resetHistoryData,
       set,
@@ -165,8 +168,13 @@
         delimiters = params.delimiters || []
         if (!delimiters.includes(' ')) delimiters.push(' ')
         patternTypes = params.pattern_types || []
-        el.value = params.input || ''
+        el.value = (params.input || '') + el.value
+        isReady = true
         el.dispatchEvent(new Event('input', { bubbles: true }))
+      },
+      picked () {
+        el.value = ''
+        isReady = false
       },
       undo
     }
@@ -287,11 +295,13 @@
 
     setupEventHandlers()
 
-    return { completed, history, setup, select, update }
+    return { completed, history, picked, setup, select, update }
 
     function completed (text) { input.set(text) }
 
     function filter ({ complete, inputEvent }) {
+      if (!input.isReady()) return
+
       if (inputEvent) {
         input.resetHistoryData()
         promptBox.setInserMode()
@@ -320,6 +330,10 @@
     function history (index, value) {
       input.setHistoryData({ index, value })
       promptBox.setHistoryMode()
+    }
+
+    function picked () {
+      input.picked()
     }
 
     function select (index, value) {
