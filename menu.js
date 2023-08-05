@@ -68,7 +68,7 @@
     function adjustScroll() {
       const visibleHeight = $box.height()
       const scroll = $el.scrollTop()
-      const totalHeight = getTotalHeight()
+      const totalHeight = $el.find('> table').outerHeight()
 
       if (totalHeight > visibleHeight) {
         const thumbHeight = 100 * visibleHeight / totalHeight
@@ -91,40 +91,66 @@
       $el.scrollTop(current + (bottom >= 0 ? bottom : (top < 0 ? top : 0)))
     }
 
-    function getTotalHeight() {
-      const heights = $el.find('> li').map((_, el) => $(el).outerHeight())
-      return Array.from(heights).reduce((a, b) => a + b, 0)
-    }
-
     function select (index) {
-      $el.find('li.selected').removeClass('selected')
+      $el.find('tr.selected').removeClass('selected')
       ensureVisible(
-        $el.find('li:nth-child(' + (index + 1) + ')').addClass('selected')
+        $el.find('tr:nth-child(' + (index + 1) + ')').addClass('selected')
       )
     }
 
     function set (items) {
       const entries = items.map(item => {
-        const $li = $(document.createElement('li'))
+        const $tr = $(document.createElement('tr'))
+        const cells = []
 
-        if (item.data.icon) $li.append(`<img src="${item.data.icon}" />`)
-
-        const title = '<p>' + item.partitions.map(({ unmatched, matched }) =>
-          unmatched + `<span class="match">${matched}</span>`
-        ).join('') + '</p>'
-
-        $li.append(title)
-
-        if (item.data.subtext) {
-          $li.append(`<p class="subtext">${item.data.subtext}</p>`)
+        if (item.data.icon) {
+          cells.push($(`<td class="icon"><img src="${item.data.icon}" /></td>`))
         }
 
-        if (item.selected) $li.addClass('selected')
+        if (item.data.subtext) {
+          const $cell = $(document.createElement('td'))
+          const $title = $(document.createElement('p'))
 
-        return $li
+          item.partitions.forEach(({ unmatched, matched }) => {
+            $title.push(unmatched)
+            $title.push($(`<span class="match">${matched}</span>`))
+          })
+
+          $cell.append($title)
+
+          if (item.data.subtext) {
+            $cell.append(`<p class="subtext">${item.data.subtext}</p>`)
+          }
+
+          cells.push($cell)
+        } else {
+          cells.push($(document.createElement('td')))
+          item.partitions.forEach(({ unmatched, matched }) => {
+            unmatched.split('\t').forEach((text, i) => {
+              if (i) {
+                cells.push($(document.createElement('td')))
+              }
+              cells[cells.length - 1].append(text)
+            })
+            matched.split('\t').forEach((text, i) => {
+              if (i) {
+                cells.push($(document.createElement('td')))
+              }
+              cells[cells.length - 1].append($(`<span class="match">${text}</span>`))
+            })
+          })
+        }
+
+        cells[cells.length - 1].attr('rolspan', Math.max(1, 11 - cells.length))
+        if (item.selected) $tr.addClass('selected')
+
+        $tr.append(cells)
+        return $tr
       })
 
-      $el.html(entries)
+      const $table = $(document.createElement('table'))
+      $table.append(entries)
+      $el.html($table)
       adjustScroll()
     }
 

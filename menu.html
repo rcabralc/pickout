@@ -33,25 +33,27 @@
 
       html {
         background-color: rgb(var(--background-color));
-        -webkit-font-feature-settings: "kern" on, "liga" on, "clig" on, "onum" on;
         font-feature-settings: "kern" on, "liga" on, "clig" on, "onum" on;
         font-kerning: normal;
         font-variant: common-ligatures oldstyle-nums;
         font-size: 16px;
         line-height: 2;
         text-rendering: optimizeLegibility;
-        -webkit-user-select: none;
         user-select: none;
       }
 
       #prompt-box {
         background-color: rgb(var(--input-background-color));
-        display: table;
         font-size: 20px;
         padding: 0.4375rem 1rem;
       }
 
-      #prompt-box .prompt-line {
+      #prompt-box {
+        display: table;
+      }
+
+      #prompt-box .prompt-line,
+      #entries li {
         display: table-row;
       }
 
@@ -97,7 +99,8 @@
         display: table-cell;
       }
 
-      #entries-box {
+      #entries-box,
+      #entries td.icon img {
         display: block;
       }
 
@@ -107,19 +110,15 @@
       }
 
       #entries {
-        font-size: 100%;
-        list-style-type: none;
         overflow-y: scroll;
       }
 
       body,
-      .input,
-      #entries {
+      .input {
         margin: 0;
       }
 
-      body,
-      #entries {
+      body {
         padding: 0;
       }
 
@@ -151,63 +150,65 @@
 
       #prompt-box,
       .input,
-      #scrollbar .thumb {
+      #scrollbar .thumb,
+      #entries table {
         width: 100%;
       }
 
-      #entries li {
-        display: flow-root;
+      #entries table {
+        border-collapse: collapse;
+      }
+
+      #entries td {
         padding: 1rem;
       }
 
       #prompt-box.not-found .input,
       .counters,
-      #entries li {
+      #entries tr {
         color: rgba(var(--color),0.6);
       }
 
-      #entries li:nth-child(2n) {
+      #entries tr:nth-child(2n) {
         background-color: rgb(var(--entries-alternate-background-color));
       }
 
-      #entries li p {
+      #entries tr p {
         margin-top: 0;
         margin-bottom: 0;
         white-space: pre-wrap;
       }
 
-      #entries li img {
-        float: left;
-        height: var(--icon-size);
-        margin-right: 0.5rem;
-        padding-top: calc(var(--icon-size) / 2);
+      #entries td.icon {
+        padding-right: 0;
+        vertical-align: top;
         width: var(--icon-size);
       }
 
-      #entries li img ~ p {
-        margin-left: calc(var(--icon-size) + 0.5rem);
+      #entries td.icon img {
+        margin-top: 0.5rem;
       }
 
-      #entries li .subtext {
+      #entries tr .subtext {
         font-size: 85%;
       }
 
-      #entries li.selected {
+      #entries tr.selected {
         --color: var(--entries-selected-color);
       }
 
       ::selection,
-      #entries li.selected {
+      #entries tr.selected {
         background-color: rgb(var(--entries-selected-background-color));
       }
 
-      #entries li,
-      #entries li .match {
+      #entries tr,
+      #entries tr .match {
         transition: all 0.2s;
       }
 
       html,
-      #entries li .match {
+      #entries tr .match {
         color: rgb(var(--color));
       }
 
@@ -250,76 +251,78 @@
     </div>
 
     <div id="entries-box">
-      <ul id="entries">
-        <!--<li><p>Entry <span class="match">highlight</span>ed</p></li>
-        <li class="selected"><p>Other entry <span class="match">highlight</span>ed</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Entry <span class="match">highlight</span>ed</p><p class="subtext">With subtext</p></li>
-        <li><p>Normal entry</p></li>
-        <li class="selected"><p>Entry <span class="match">highlight</span>ed and selected</p><p class="subtext">With subtext</p></li>
-        <li><p>Normal entry</p><p class="subtext">With subtext</p></li>
-        <li><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAGv
-AAABrwGMBXQ6AAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48
-GgAAAB1JREFUOI1j/M/A8J+BAsBEieZRA0YNGDVgMBkAAFhtAh6Zl924AAAA
-AElFTkSuQmCC" /><p>Normal entry</p></li>
-        <li><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAGv
-AAABrwGMBXQ6AAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48
-GgAAAB1JREFUOI1j/M/A8J+BAsBEieZRA0YNGDVgMBkAAFhtAh6Zl924AAAA
-AElFTkSuQmCC" /><p>Entry <span class="match">highlight</span>ed</p><p class="subtext">With subtext</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>
-        <li><p>Normal entry</p></li>-->
-      </ul>
+      <div id="entries">
+        <!--<table>
+          <tr><td colspan="10">Entry <span class="match">highlight</span>ed</td></tr>
+          <tr class="selected"><td colspan="10">Other entry <span class="match">highlight</span>ed</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Entry <span class="match">highlight</span>ed</p><p class="subtext">With subtext</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr class="selected"><td colspan="10"><p>Entry <span class="match">highlight</span>ed and selected</p><p class="subtext">With subtext</p></td></tr>
+          <tr><td colspan="10"><p>Normal entry</p><p class="subtext">With subtext</p></td></tr>
+          <tr><td class="icon"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAGv
+  AAABrwGMBXQ6AAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48
+  GgAAAB1JREFUOI1j/M/A8J+BAsBEieZRA0YNGDVgMBkAAFhtAh6Zl924AAAA
+  AElFTkSuQmCC" /></td><td>Normal entry</td></tr>
+          <tr><td class="icon"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAGv
+  AAABrwGMBXQ6AAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48
+  GgAAAB1JREFUOI1j/M/A8J+BAsBEieZRA0YNGDVgMBkAAFhtAh6Zl924AAAA
+  AElFTkSuQmCC" /></td><td><p>Entry <span class="match">highlight</span>ed</p><p class="subtext">With subtext</p></td></tr>
+          <tr><td>201C</td><td>“</td><td>[PUNCT] LEFT DOUBLE <span class="match">QUOTATION M</span>ARK</td><td colspan="7">"6</td></tr>
+          <tr><td><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+          <tr><td colspan="10">Normal entry</td></tr>
+        </table>-->
+      </div>
 
       <div id="scrollbar"><div class="track"><div class="thumb"></div></div></div>
     </div>
