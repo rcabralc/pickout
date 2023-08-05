@@ -130,6 +130,8 @@ class MainView(QWebEngineView):
         )
 
     def restore(self):
+        if self._center:
+            self.setWindowModality(Qt.ApplicationModal)
         self.activateWindow()
         self.showNormal()
         if self._center:

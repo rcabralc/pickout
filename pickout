@@ -71,7 +71,13 @@ Options:
         If no selection is made, a single blank line is printed.
 
     --no-center
-        Do not move window to the center of the screen.
+        Do not move the menu window to the center of the screen.
+
+        By default, the menu is centered and behaves like a modal window, as a
+        hint to window managers that they should not try to position the
+        window.  Disabling centering will cause the menu to not behave like a
+        modal window and, as such, window managers may decide to place and size
+        the window as it fits.
 
     --title <title>
         Set the window title to <title>.
