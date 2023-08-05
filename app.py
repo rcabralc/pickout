@@ -30,7 +30,7 @@ class Filter(QObject):
 
     def __init__(self, limit=None):
         super(Filter, self).__init__()
-        self._limit = limit
+        self._limit = limit or None
 
     @pyqtSlot(bool)
     def run(self, loop=False):
@@ -79,13 +79,16 @@ class Filter(QObject):
                      completion_sep='',
                      debug=False,
                      home=None,
+                     limit=20,
                      word_delimiters=None,
                      **kw):
         logger = sys.stderr if debug else None
+        limit = limit or None
 
         return dict(
             delimiters=list(word_delimiters or ''),
             home_input=home,
+            limit=limit,
             logger=logger,
             sep=completion_sep,
             **kw

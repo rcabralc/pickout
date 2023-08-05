@@ -183,7 +183,6 @@ def choose(pickout, rg_out, args, root, home=None, input='', add_pardir=True):
     key = f'file://{root}'
     loop_args = dict(
         history_key=key,
-        limit=20,
         input=input,
         title=title,
         word_delimiters=os.path.sep

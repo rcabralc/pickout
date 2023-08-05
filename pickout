@@ -55,8 +55,9 @@ Options:
         Return the selection as a JSON array.
 
     -l <limit>, --limit <limit>
-        Limit output up to <limit> results.  Use a negative number to not limit
-        output.
+        [default: 20]
+
+        Limit output up to <limit> results.  Use zero to not limit output.
 
     --loop
         Don't quit until SIGTERM is received or the menu window is closed, and
