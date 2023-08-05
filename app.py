@@ -58,7 +58,8 @@ class Filter(QObject):
         )
 
         entries = iter(sys.stdin.readline, '\n' if loop else '')
-        self._process.stdin.write((''.join(entries) + '\n').encode(self._enc))
+        non_empty_entries = ''.join(e for e in entries if e.rstrip())
+        self._process.stdin.write((non_empty_entries + '\n').encode(self._enc))
         self.ready.emit(options)
 
     @pyqtSlot(dict)
