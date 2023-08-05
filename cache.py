@@ -59,7 +59,7 @@ class _Key:
     def __contains__(self, other):
         if not hasattr(other, '_patterns'):
             return other in self._patterns
-        return all(any(pattern in p for p in self._patterns)
+        return all(all(pattern in p for p in self._patterns)
                    for pattern in other._patterns)
 
     def __eq__(self, other):
