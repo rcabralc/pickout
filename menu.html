@@ -204,7 +204,7 @@
 
       #entries tr,
       #entries tr .match {
-        transition: all 0.2s;
+        transition: all .2s;
       }
 
       html,
@@ -236,10 +236,84 @@
       #entries::after {
         top: 0;
       }
+
+      /* progress styling is based on Material UI and copied from
+       * https://github.com/finnhvman/matter/blob/master/src/components/progress/linear/progress-linear.css
+       */
+      progress {
+        appearance: none;
+        background-color: rgb(var(--entries-selected-background-color),.12);
+        border: none;
+        color: rgb(var(--entries-selected-background-color));
+        display: block;
+        height: 0;
+        position: absolute;
+        transition: height .2s;
+        width: 100%;
+      }
+
+      progress.in-progress {
+        height: 0.25rem;
+      }
+
+      progress::-webkit-progress-bar {
+        background-color: transparent;
+      }
+
+      progress:indeterminate {
+        background-size: 200% 100%;
+        background-image:
+          linear-gradient(to right, currentColor 16%, transparent 16%),
+          linear-gradient(to right, currentColor 16%, transparent 16%),
+          linear-gradient(to right, currentColor 25%, transparent 25%);
+        animation: progress-linear 1.8s infinite linear;
+      }
+
+      progress:indeterminate::-webkit-progress-value {
+        background-color: transparent;
+      }
+
+      @keyframes progress-linear {
+        0% {
+          background-position: 32% 0, 32% 0, 50% 0;
+        }
+        2% {
+          background-position: 32% 0, 32% 0, 50% 0;
+        }
+        21% {
+          background-position: 32% 0, -18% 0, 0 0;
+        }
+        42% {
+          background-position: 32% 0, -68% 0, -27% 0;
+        }
+        50% {
+          background-position: 32% 0, -93% 0, -46% 0;
+        }
+        56% {
+          background-position: 32% 0, -118% 0, -68% 0;
+        }
+        66% {
+          background-position: -11% 0, -200% 0, -100% 0;
+        }
+        71% {
+          background-position: -32% 0, -200% 0, -100% 0;
+        }
+        79% {
+          background-position: -54% 0, -242% 0, -100% 0;
+        }
+        86% {
+          background-position: -68% 0, -268% 0, -100% 0;
+        }
+        100% {
+          background-position: -100% 0, -300% 0, -100% 0;
+        }
+      }
     </style>
   </head>
 
   <body>
+    <progress class="in-progress"></progress>
+
     <div id="prompt-box">
       <div class="prompt-line">
         <span id="prompt" class="prompt">▸</span>

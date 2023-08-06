@@ -28,8 +28,9 @@
       bridge[method] = (...args) => global.bridge[method](...args)
       return bridge
     }, {})
+    const progress = buildProgress($('progress'))
     const promptBox = buildPromptBox($('#prompt-box'), $('#prompt-box .prompt'))
-    const widget = buildWidget({ counters, entries, input, menu, promptBox })
+    const widget = buildWidget({ counters, entries, input, menu, progress, promptBox })
 
     new QWebChannel(qt.webChannelTransport, function (channel) {
       const bridge = global.bridge = channel.objects.bridge
@@ -287,6 +288,13 @@
     }
   }
 
+  function buildProgress ($progress) {
+    return {
+      start () { $progress.addClass('in-progress') },
+      stop () { $progress.removeClass('in-progress') }
+    }
+  }
+
   function buildPromptBox ($box, $prompt) {
     return {
       setHistoryMode () {
@@ -311,7 +319,7 @@
     }
   }
 
-  function buildWidget ({ counters, entries, input, menu, promptBox }) {
+  function buildWidget ({ counters, entries, input, menu, progress, promptBox }) {
     let filterText = ''
     let filterTimeout = null
     let home = ''
@@ -323,10 +331,15 @@
 
     return { completed, history, picked, setup, select, update }
 
-    function completed (text) { input.set(text) }
+    function completed (text) {
+      input.set(text)
+      progress.stop()
+    }
 
     function filter ({ complete, inputEvent }) {
       if (!input.isReady()) return
+
+      progress.start()
 
       if (inputEvent) {
         input.resetHistoryData()
@@ -368,6 +381,7 @@
     }
 
     function setup (json) {
+      progress.start()
       const params = JSON.parse(json)
       home = params.home_input
       input.setup(params)
@@ -468,6 +482,7 @@
       pending--
       if (receivedSeq !== seq) return
 
+      progress.stop()
       counters.update(filtered, total, items)
       entries.update(filtered, total, items)
       promptBox.update(filtered, total, items)
