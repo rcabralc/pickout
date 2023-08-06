@@ -1,6 +1,6 @@
 from elect import Entry
 from menu import Menu
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QThread
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QEvent, Qt, QThread
 from PyQt5.QtGui import QPalette
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineSettings
 from PyQt5.QtWebChannel import QWebChannel
@@ -112,6 +112,7 @@ class MainView(QWebEngineView):
             frontend_source = f.read()
 
         self._center = center
+        self._menu = menu
         channel = QWebChannel()
 
         def on_load_finished(*_a, **kw):
@@ -119,7 +120,7 @@ class MainView(QWebEngineView):
             page.runJavaScript(jquery_source + frontend_source)
 
         page = self.page()
-        page.setHtml(template.html(self.palette()))
+        page.setHtml(template.html(Theme(self.palette())))
         page.setWebChannel(channel)
 
         self.loadFinished.connect(on_load_finished)
@@ -142,6 +143,12 @@ class MainView(QWebEngineView):
             centerPoint = desktop.screenGeometry(screen).center()
             frameGeometry.moveCenter(centerPoint)
             self.move(frameGeometry.topLeft())
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.PaletteChange:
+            theme = Theme(self.palette())
+            self._menu.themed.emit([[k, v] for k, v in theme.items()])
+        return super(MainView, self).changeEvent(event)
 
 
 class Picker(QObject):
@@ -227,34 +234,40 @@ class Template:
     def __init__(self, code):
         self._code = code
 
-    def html(self, palette):
-        theme = self._default_colors(palette)
-
+    def html(self, theme):
         code = self._code
         for key, value in theme.items():
-            code = re.sub(f'--{key}: [^;]*;', f'--{key}: {value};', code, 1)
+            code = re.sub(f'{key}: [^;]*;', f'{key}: {value};', code, 1)
         return code.replace('%(initial-value)s', '')
 
-    def _default_colors(self, palette):
+
+class Theme:
+    def __init__(self, palette):
+        self._palette = palette
+
+    def items(self):
+        return self._default_colors().items()
+
+    def _default_colors(self):
         return {
-            "background-color": self._color(palette, 'Window'),
-            "color": self._color(palette, 'WindowText'),
-            "prompt-color": self._color(palette, 'Link'),
-            "prompt-over-limit-color": self._color(palette, 'LinkVisited'),
-            "input-background-color": self._color(palette, 'AlternateBase'),
-            "input-history-color": self._color(palette, 'Link'),
-            "entries-selected-color": self._color(palette, 'HighlightedText'),
-            "entries-selected-background-color": self._color(palette, 'Highlight'),
+            "--background-color": self._color('Window'),
+            "--color": self._color('WindowText'),
+            "--prompt-color": self._color('Link'),
+            "--prompt-over-limit-color": self._color('LinkVisited'),
+            "--input-background-color": self._color('AlternateBase'),
+            "--input-history-color": self._color('Link'),
+            "--entries-selected-color": self._color('HighlightedText'),
+            "--entries-selected-background-color": self._color('Highlight'),
         }
 
-    def _color(self, palette, role_name, disabled=False, inactive=False):
+    def _color(self, role_name, disabled=False, inactive=False):
         role = getattr(QPalette, role_name)
         if disabled:
-            c = palette.color(QPalette.Disabled, role)
+            c = self._palette.color(QPalette.Disabled, role)
         elif inactive:
-            c = palette.color(QPalette.Inactive, role)
+            c = self._palette.color(QPalette.Inactive, role)
         else:
-            c = palette.color(role)
+            c = self._palette.color(QPalette.Active, role)
         return "%d,%d,%d" % (c.red(), c.green(), c.blue())
 
 

@@ -81,6 +81,7 @@ class Menu(QObject):
     requested = pyqtSignal(dict)
     selected = pyqtSignal(int, str)
     setup = pyqtSignal(str)
+    themed = pyqtSignal(list)
 
     _is_ready = False
     _ready = pyqtSignal()

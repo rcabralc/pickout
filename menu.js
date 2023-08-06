@@ -41,6 +41,7 @@
       bridge.history.connect(widget.history)
       bridge.completed.connect(widget.completed)
       bridge.picked.connect(widget.picked)
+      bridge.themed.connect(widget.themed)
 
       bridge.js_ready()
     })
@@ -329,7 +330,7 @@
 
     setupEventHandlers()
 
-    return { completed, history, picked, setup, select, update }
+    return { completed, history, picked, setup, select, themed, update }
 
     function completed (text) {
       input.set(text)
@@ -476,6 +477,13 @@
           return false
         }
       })
+    }
+
+    function themed (themeVars) {
+      const root = document.documentElement
+      for (const [name, value] of themeVars) {
+        root.style.setProperty(name, value)
+      }
     }
 
     function update (receivedSeq, filtered, total, items) {
