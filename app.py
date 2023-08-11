@@ -119,9 +119,11 @@ class MainView(QWebEngineView):
             channel.registerObject('bridge', menu)
             page.runJavaScript(jquery_source + frontend_source)
 
+        self._theme = Theme(self.palette())
         page = self.page()
-        page.setHtml(template.html(Theme(self.palette())))
+        page.setHtml(template.html(self._theme))
         page.setWebChannel(channel)
+        page.setBackgroundColor(self._theme.background_color)
 
         self.loadFinished.connect(on_load_finished)
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
@@ -146,8 +148,10 @@ class MainView(QWebEngineView):
 
     def changeEvent(self, event):
         if event.type() == QEvent.PaletteChange:
-            theme = Theme(self.palette())
+            self._theme = theme = Theme(self.palette())
             self._menu.themed.emit([[k, v] for k, v in theme.items()])
+            page = self.page()
+            page.setBackgroundColor(theme.background_color)
         return super(MainView, self).changeEvent(event)
 
 
@@ -248,9 +252,13 @@ class Theme:
     def items(self):
         return self._default_colors().items()
 
+    @property
+    def background_color(self):
+        return self._palette.color(QPalette.Active, QPalette.Window)
+
     def _default_colors(self):
         return {
-            "--background-color": self._color('Window'),
+            "--background-color": self._rgb(self.background_color),
             "--color": self._color('WindowText'),
             "--prompt-color": self._color('Link'),
             "--prompt-over-limit-color": self._color('LinkVisited'),
@@ -263,12 +271,15 @@ class Theme:
     def _color(self, role_name, disabled=False, inactive=False):
         role = getattr(QPalette, role_name)
         if disabled:
-            c = self._palette.color(QPalette.Disabled, role)
+            color = self._palette.color(QPalette.Disabled, role)
         elif inactive:
-            c = self._palette.color(QPalette.Inactive, role)
+            color = self._palette.color(QPalette.Inactive, role)
         else:
-            c = self._palette.color(QPalette.Active, role)
-        return "%d,%d,%d" % (c.red(), c.green(), c.blue())
+            color = self._palette.color(QPalette.Active, role)
+        return self._rgb(color)
+
+    def _rgb(self, color):
+        return "%d,%d,%d" % (color.red(), color.green(), color.blue())
 
 
 def run(**kw):
