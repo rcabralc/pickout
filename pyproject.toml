@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pickout"
+version = "0.0.1"
+authors = [
+    { name="rcabralc", email="r@rcabralc.net" },
+]
+description = "A heavy dmenu replacement"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: The Unlicense (Unlicense)",
+    "Operating System :: POSIX :: Linux",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/rcabralc/pickout"
+"Bug Tracker" = "https://github.com/rcabralc/pickout/issues"
