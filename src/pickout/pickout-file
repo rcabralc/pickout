@@ -36,16 +36,23 @@ Options:
         Options passed down to rg(1).
 
     --path <path>
-        A reference directory that will be used to generate pickout --input and
-        leverage ignored paths given through --glob option.
+        A reference file or directory that will be used to generate pickout's
+        initial --input and leverage ignored paths given through --glob option.
+
+        If --path is an absolute path, it will be transformed into a relative
+        path relative from <dir>.
 
         If any exclusion glob (see --glob and rg(1) --glob option) would
         exclude the directory referenced by --path, the glob is ignored.
-        Otherwise, if --path is under a Git repository, pickout --input will be
-        the root of the repository.
 
-        If --path is an absolute path, it will be transformed into a relative
-        path (relative from <dir>) before being passed to pickout as --input.
+        If --path is under a hidden tree and hidden files are going to be
+        ignored, an additional search path is added to rg such that the path
+        is included in the list along with its closest ancestor hidden tree.
+
+        If --path is inside a Git repository but would be ignored by .gitignore
+        rules, and --no-ignore was not used (that is, rg is set to ignore Git-
+        ignored files), the root of the repository is used as pickout --input
+        instead.
 
     -h, --help
         Show this.
@@ -82,30 +89,58 @@ rg_default_args = [which('rg'), '--files', '--follow']
 def main(args):
     original_globs = args['--glob']
     path = args['--path'] or os.curdir
+    hidden = args['--hidden']
+    no_ignore = args['--no-ignore']
     root = os.path.abspath(args['<dir>'] or os.curdir)
+    home = args['--home']
     initial_root = root = '/' + root.lstrip(os.path.sep)
     path = os.path.relpath(path, root)
+
+    if os.path.isfile(path):
+        path = os.path.dirname(path)
 
     # Prevent --path from not matching anything by skipping any exclusion glob
     # that would exclude it.
     globs = [g for g in original_globs if not glob_excludes(g, path)]
 
-    if len(globs) == len(original_globs):
-        isgit = run(
-            ['git', '-C', path, 'rev-parse', '--show-toplevel'],
-            capture_output=True
-        )
-        if isgit.returncode == 0:
-            path = isgit.stdout.decode('utf-8').rstrip()
-            path = os.path.relpath(path, root)
-
+    paths = []
     if path == os.curdir:
         path = ''
     else:
+        # Include a search path for --path if it is inside a hidden tree and
+        # hidden files are not going to be listed.
+        segments = path.split(os.path.sep)
+        in_hidden_tree = [s for s in segments if s.startswith('.')]
+        if not hidden and in_hidden_tree:
+            found_last_hidden = False
+            search_segments = []
+            for segment in reversed(segments):
+                if not found_last_hidden and segment.startswith('.'):
+                    found_last_hidden = True
+                if found_last_hidden:
+                    search_segments.insert(0, segment)
+            paths.append(os.path.join(*search_segments))
+
+    is_git = path and run(
+        ['git', '-C', path, 'rev-parse', '--show-toplevel'],
+        capture_output=True
+    )
+
+    if not no_ignore and is_git.returncode == 0:
+        git_root = is_git.stdout.decode('utf-8').rstrip()
+        # If path would be excluded by Git, use the root of the repository as
+        # path.
+        rel_path = os.path.relpath(path, git_root)
+        check_ignore = run(
+            ['git', '-C', git_root, 'check-ignore', rel_path],
+            capture_output=True
+        )
+        if check_ignore.returncode == 0:
+            path = os.path.relpath(git_root, root)
+
+    if path:
         path += os.path.sep
 
-    title = args['--title'] or f'Select file from {root}'
-    home=args['--home']
     pickout = Popen(
         pickout_cmd_args(args),
         bufsize=0,
@@ -114,47 +149,51 @@ def main(args):
         stderr=sys.stderr
     )
 
-    hidden = args['--hidden']
-    no_ignore = args['--no-ignore']
     with pickout:
         while True:
-            with grep(root, globs, hidden, no_ignore) as rg:
-                rg_out = rg.stdout.read()
-                results = set(iter(io.BytesIO(rg_out).readline, b''))
+            sed = Popen(
+                ['sed', 's/\.\///'],
+                stdin=PIPE,
+                stdout=PIPE,
+                stderr=PIPE
+            )
+            with sed:
+                with grep(root, paths, globs, hidden, no_ignore) as rg:
+                    files, _ = sed.communicate(rg.stdout.read())
+                    results = set(iter(io.BytesIO(files).readline, b''))
 
-                add_pardir = root != initial_root
-                choice = choose(pickout, rg_out, args, root, home, path, add_pardir)
+                    add_pardir = root != initial_root
+                    choice = choose(pickout, files, args, root, home, path, add_pardir)
 
-                if not choice.rstrip('\n'):
-                    break
+                    if not choice.rstrip('\n'):
+                        break
 
-                path = os.path.normpath(os.path.join(root, choice.rstrip('\n')))
+                    path = os.path.normpath(os.path.join(root, choice.rstrip('\n')))
 
-                if not os.path.isdir(path):
-                    print(path)
-                    break
+                    if not os.path.isdir(path):
+                        print(path)
+                        break
 
-                if choice.encode('utf-8') in results:
-                    root = initial_root
-                    path = os.path.relpath(path, root) + os.path.sep
-                    if (path == os.curdir + os.path.sep or
-                            path == os.pardir + os.path.sep):
+                    if choice.encode('utf-8') in results:
+                        root = initial_root
+                        path = os.path.relpath(path, root) + os.path.sep
+                        if (path == os.curdir + os.path.sep or
+                                path == os.pardir + os.path.sep):
+                            path = ''
+                    else:
+                        root = path
                         path = ''
-                else:
-                    root = path
-                    path = ''
 
-                globs = original_globs
+                    globs = original_globs
+                    paths = []
     pickout.terminate()
 
 
 def glob_excludes(glob, path):
-    return globs_exclude([glob], path)
+    if not glob.startswith('!'):
+        return False
 
-
-def globs_exclude(globs, path):
-    exclusion_globs = [g[1:] for g in globs if g.startswith('!')]
-    spec = pathspec.PathSpec.from_lines('gitwildmatch', exclusion_globs)
+    spec = pathspec.PathSpec.from_lines('gitwildmatch', [glob])
     return spec.match_file(path)
 
 
@@ -167,7 +206,7 @@ def pickout_cmd_args(args):
     return cmd_args
 
 
-def grep(root, globs, hidden=False, no_ignore=False):
+def grep(root, paths, globs, hidden=False, no_ignore=False):
     args = [which('rg'), '--files', '--follow']
     if hidden:
         args.append('--hidden')
@@ -175,10 +214,11 @@ def grep(root, globs, hidden=False, no_ignore=False):
         args.append('--no-ignore')
     for glob in globs:
         args.extend(['--glob', glob])
+    args.extend(['.', *paths])
     return Popen(args, cwd=root, stderr=DEVNULL, stdout=PIPE)
 
 
-def choose(pickout, rg_out, args, root, home=None, input='', add_pardir=True):
+def choose(pickout, files, args, root, home=None, input='', add_pardir=True):
     title = args['--title'] or f'Select file from {root}'
     key = f'file://{root}'
     loop_args = dict(
@@ -200,7 +240,7 @@ def choose(pickout, rg_out, args, root, home=None, input='', add_pardir=True):
         if len(root.split(os.path.sep)) > 2:
             pickout.stdin.write((os.pardir + '\n').encode('utf-8'))
 
-    pickout.stdin.write(rg_out + b'\n')
+    pickout.stdin.write(files + b'\n')
 
     choice = b''
     for line in pickout.stdout:
