@@ -193,7 +193,7 @@ def glob_excludes(glob, path):
     if not glob.startswith('!'):
         return False
 
-    spec = pathspec.PathSpec.from_lines('gitwildmatch', [glob])
+    spec = pathspec.PathSpec.from_lines('gitwildmatch', [glob[1:]])
     return spec.match_file(path)
 
 
