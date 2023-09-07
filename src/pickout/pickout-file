@@ -121,24 +121,24 @@ def main(args):
                     search_segments.insert(0, segment)
             paths.append(os.path.join(*search_segments))
 
-    is_git = path and run(
-        ['git', '-C', path, 'rev-parse', '--show-toplevel'],
-        capture_output=True
-    )
-
-    if not no_ignore and is_git.returncode == 0:
-        git_root = is_git.stdout.decode('utf-8').rstrip()
-        # If path would be excluded by Git, use the root of the repository as
-        # path.
-        rel_path = os.path.relpath(path, git_root)
-        check_ignore = run(
-            ['git', '-C', git_root, 'check-ignore', rel_path],
+    if path:
+        is_git = run(
+            ['git', '-C', path, 'rev-parse', '--show-toplevel'],
             capture_output=True
         )
-        if check_ignore.returncode == 0:
-            path = os.path.relpath(git_root, root)
 
-    if path:
+        if not no_ignore and is_git.returncode == 0:
+            git_root = is_git.stdout.decode('utf-8').rstrip()
+            # If path would be excluded by Git, use the root of the repository as
+            # path.
+            rel_path = os.path.relpath(path, git_root)
+            check_ignore = run(
+                ['git', '-C', git_root, 'check-ignore', rel_path],
+                capture_output=True
+            )
+            if check_ignore.returncode == 0:
+                path = os.path.relpath(git_root, root)
+
         path += os.path.sep
 
     pickout = Popen(
