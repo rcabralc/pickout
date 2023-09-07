@@ -138,22 +138,22 @@ import sys
 
 
 def main(args):
-    return run(
-        accept_input=args['--accept-input'],
-        app_name=args['--app-name'],
-        center=not args['--no-center'],
-        completion_sep=args['--completion-sep'],
-        debug=args['--debug'],
-        history_key=args['--history-key'],
-        home=args['--home'],
-        input=args['--input'],
-        json_output=args['--json-output'],
-        limit=args['--limit'],
-        loop=args['--loop'],
-        title=args['--title'],
-        word_delimiters=args['--word-delimiters']
-    )
+	return run(
+		accept_input=args['--accept-input'],
+		app_name=args['--app-name'],
+		center=not args['--no-center'],
+		completion_sep=args['--completion-sep'],
+		debug=args['--debug'],
+		history_key=args['--history-key'],
+		home=args['--home'],
+		input=args['--input'],
+		json_output=args['--json-output'],
+		limit=args['--limit'],
+		loop=args['--loop'],
+		title=args['--title'],
+		word_delimiters=args['--word-delimiters']
+	)
 
 
 if __name__ == '__main__':
-    sys.exit(main(docopt(__doc__)))
+	sys.exit(main(docopt(__doc__)))
