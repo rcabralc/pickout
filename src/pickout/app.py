@@ -1,10 +1,9 @@
 from elect import Entry
 from menu import Menu
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QEvent, Qt, QThread
-from PyQt5.QtGui import QPalette
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineSettings
-from PyQt5.QtWebChannel import QWebChannel
-from PyQt5.QtWidgets import QApplication
+from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtWebEngineCore import QWebEngineSettings
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebChannel import QWebChannel
 from subprocess import PIPE, Popen
 
 import json
@@ -20,10 +19,10 @@ class AsJSONEncoder(json.JSONEncoder):
 		return super(AsJSONEncoder, self).default(o)
 
 
-class Filter(QObject):
-	quitted = pyqtSignal()
-	ready = pyqtSignal(dict)
-	response = pyqtSignal(dict)
+class Filter(QtCore.QObject):
+	quitted = QtCore.Signal()
+	ready = QtCore.Signal(dict)
+	response = QtCore.Signal(dict)
 	_enc = 'utf-8'
 	_path = os.path.join(os.path.dirname(__file__), 'filter.py')
 	_process = None
@@ -32,7 +31,7 @@ class Filter(QObject):
 		super(Filter, self).__init__()
 		self._limit = limit or None
 
-	@pyqtSlot(bool)
+	@QtCore.Slot(bool)
 	def run(self, loop=False):
 		if loop:
 			line = sys.stdin.readline().strip()
@@ -62,7 +61,7 @@ class Filter(QObject):
 		self._process.stdin.write((non_empty_entries + '\n').encode(self._enc))
 		self.ready.emit(options)
 
-	@pyqtSlot(dict)
+	@QtCore.Slot(dict)
 	def request(self, request):
 		if self._process:
 			payload = json.dumps(request) + '\n'
@@ -70,7 +69,7 @@ class Filter(QObject):
 			line = self._process.stdout.readline().decode(self._enc)
 			self.response.emit(json.loads(line))
 
-	@pyqtSlot()
+	@QtCore.Slot()
 	def stop(self):
 		if self._process is not None:
 			self._process.terminate()
@@ -128,28 +127,27 @@ class MainView(QWebEngineView):
 		page.setBackgroundColor(self._theme.background_color)
 
 		self.loadFinished.connect(on_load_finished)
-		self.setWindowFlags(Qt.WindowStaysOnTopHint)
-		settings = QWebEngineSettings.globalSettings()
+		self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
+		settings = page.settings()
 		settings.setFontFamily(
 			QWebEngineSettings.StandardFont,
-			QApplication.font().family()
+			QtWidgets.QApplication.font().family()
 		)
 
 	def restore(self):
 		if self._center:
-			self.setWindowModality(Qt.ApplicationModal)
+			self.setWindowModality(QtCore.Qt.ApplicationModal)
 		self.activateWindow()
 		self.showNormal()
 		if self._center:
 			frameGeometry = self.frameGeometry()
-			desktop = QApplication.desktop()
-			screen = desktop.screenNumber(desktop.cursor().pos())
-			centerPoint = desktop.screenGeometry(screen).center()
+			screen = QtWidgets.QApplication.primaryScreen()
+			centerPoint = screen.geometry().center()
 			frameGeometry.moveCenter(centerPoint)
 			self.move(frameGeometry.topLeft())
 
 	def changeEvent(self, event):
-		if event.type() == QEvent.PaletteChange:
+		if event.type() == QtCore.QEvent.PaletteChange:
 			self._theme = theme = Theme(self.palette())
 			self._menu.themed.emit([[k, v] for k, v in theme.items()])
 			page = self.page()
@@ -157,8 +155,8 @@ class MainView(QWebEngineView):
 		return super(MainView, self).changeEvent(event)
 
 
-class Picker(QObject):
-	_started = pyqtSignal(bool)
+class Picker(QtCore.QObject):
+	_started = QtCore.Signal(bool)
 
 	def __init__(
 			self,
@@ -174,10 +172,10 @@ class Picker(QObject):
 		self._loop = loop
 		self._options = options
 
-		self._app = QApplication(sys.argv)
+		self._app = QtWidgets.QApplication(sys.argv)
 		self._app.setApplicationName(app_name)
 		self._app.setDesktopFileName(f'{app_name}.desktop')
-		self._app._filter_thread = QThread()
+		self._app._filter_thread = QtCore.QThread()
 
 		self._menu = Menu(self._app)
 		self._view = MainView(self._menu, center=center)
@@ -229,7 +227,7 @@ class Picker(QObject):
 		else:
 			self.quit()
 
-	@pyqtSlot(dict)
+	@QtCore.Slot(dict)
 	def _ready(self, options):
 		combined_options = dict(self._options)
 		combined_options.update(options)
@@ -258,7 +256,7 @@ class Theme:
 
 	@property
 	def background_color(self):
-		return self._palette.color(QPalette.Active, QPalette.Window)
+		return self._palette.color(QtGui.QPalette.Active, QtGui.QPalette.Window)
 
 	def _default_colors(self):
 		return {
@@ -273,13 +271,13 @@ class Theme:
 		}
 
 	def _color(self, role_name, disabled=False, inactive=False):
-		role = getattr(QPalette, role_name)
+		role = getattr(QtGui.QPalette, role_name)
 		if disabled:
-			color = self._palette.color(QPalette.Disabled, role)
+			color = self._palette.color(QtGui.QPalette.Disabled, role)
 		elif inactive:
-			color = self._palette.color(QPalette.Inactive, role)
+			color = self._palette.color(QtGui.QPalette.Inactive, role)
 		else:
-			color = self._palette.color(QPalette.Active, role)
+			color = self._palette.color(QtGui.QPalette.Active, role)
 		return self._rgb(color)
 
 	def _rgb(self, color):

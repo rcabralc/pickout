@@ -1,6 +1,6 @@
 from elect import Entry
 from itertools import tee
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
+from PySide6 import QtCore
 
 import json
 import os
@@ -74,22 +74,22 @@ class HistoryEntry:
 		self.value = value
 
 
-class Menu(QObject):
-	completed = pyqtSignal(str)
-	filtered = pyqtSignal([int, int, int, list])
-	history = pyqtSignal(int, str)
-	picked = pyqtSignal(list)
-	requested = pyqtSignal(dict)
-	selected = pyqtSignal(int, str)
-	setup = pyqtSignal(str)
-	themed = pyqtSignal(list)
+class Menu(QtCore.QObject):
+	completed = QtCore.Signal(str)
+	filtered = QtCore.Signal(int, int, int, list)
+	history = QtCore.Signal(int, str)
+	picked = QtCore.Signal(list)
+	requested = QtCore.Signal(dict)
+	selected = QtCore.Signal(int, str)
+	setup = QtCore.Signal(str)
+	themed = QtCore.Signal(list)
 
 	_is_ready = False
-	_ready = pyqtSignal()
+	_ready = QtCore.Signal()
 	_results = []
 	__index = 0
 
-	@pyqtSlot()
+	@QtCore.Slot()
 	def js_ready(self):
 		self._is_ready = True
 		self._ready.emit()
@@ -116,7 +116,7 @@ class Menu(QObject):
 		else:
 			self._ready.connect(setup_single_shot)
 
-	@pyqtSlot(dict)
+	@QtCore.Slot(dict)
 	def update_list(self, response):
 		if response['command'] == 'filter':
 			items = response['items']
@@ -136,7 +136,7 @@ class Menu(QObject):
 		elif response['command'] == 'complete':
 			self.completed.emit(response['candidate'])
 
-	@pyqtSlot(int, str)
+	@QtCore.Slot(int, str)
 	def filter(self, seq, input):
 		self._logger.write(f'filtering {seq} {input}\n')
 		self.requested.emit(dict(
@@ -145,7 +145,7 @@ class Menu(QObject):
 			input=input,
 		))
 
-	@pyqtSlot(str)
+	@QtCore.Slot(str)
 	def complete(self, input):
 		self.requested.emit(dict(
 			command='complete',
@@ -154,42 +154,42 @@ class Menu(QObject):
 			input=input,
 		))
 
-	@pyqtSlot()
+	@QtCore.Slot()
 	def accept_selected(self):
 		if self._results:
 			selected = self._results[self._index]
 			self._history.add(selected.value)
 			self.picked.emit([selected])
 
-	@pyqtSlot(str)
+	@QtCore.Slot(str)
 	def accept_input(self, input):
 		if self._accept_input:
 			self._history.add(input)
 			self.picked.emit([Entry(-1, input + '\n')])
 
-	@pyqtSlot(int, str)
+	@QtCore.Slot(int, str)
 	def request_next_from_history(self, index, input):
 		entry = self._history.next(index, input)
 		if entry is not None:
 			self.history.emit(entry.index, entry.value)
 
-	@pyqtSlot(int, str)
+	@QtCore.Slot(int, str)
 	def request_prev_from_history(self, index, input):
 		entry = self._history.prev(index, input)
 		if entry is not None:
 			self.history.emit(entry.index, entry.value)
 
-	@pyqtSlot()
+	@QtCore.Slot()
 	def select_next(self):
 		self._index += 1
 		self._emit_selection()
 
-	@pyqtSlot()
+	@QtCore.Slot()
 	def select_prev(self):
 		self._index -= 1
 		self._emit_selection()
 
-	@pyqtSlot()
+	@QtCore.Slot()
 	def dismiss(self):
 		self.picked.emit([])
 

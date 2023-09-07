@@ -199,7 +199,7 @@ def glob_excludes(glob, path):
 
 def pickout_cmd_args(args):
 	cmd_args = ['pickout', '--loop']
-	if value := args['--no-center']:
+	if args['--no-center']:
 		cmd_args.append('--no-center')
 	if value := args['--app-name']:
 		cmd_args.extend(['--app-name', value])
