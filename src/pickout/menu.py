@@ -1,4 +1,3 @@
-from elect import Entry
 from itertools import tee
 from PySide6 import QtCore
 
@@ -119,11 +118,12 @@ class Menu(QtCore.QObject):
 	@QtCore.Slot(dict)
 	def update_list(self, response):
 		if response['command'] == 'filter':
-			items = response['items']
-			self._results = [Entry(i['index'], i['value']) for i in items]
+			self._results = response['items']
 			self._index = self.__index
-			if items:
-				items[self._index]['selected'] = True
+			items = [
+				dict(**item, selected=i == self._index)
+				for i, item in enumerate(response['items'])
+			]
 
 			self.filtered.emit(
 				response['seq'],
@@ -158,14 +158,14 @@ class Menu(QtCore.QObject):
 	def accept_selected(self):
 		if self._results:
 			selected = self._results[self._index]
-			self._history.add(selected.value)
+			self._history.add(selected['value'])
 			self.picked.emit([selected])
 
 	@QtCore.Slot(str)
 	def accept_input(self, input):
 		if self._accept_input:
 			self._history.add(input)
-			self.picked.emit([Entry(-1, input + '\n')])
+			self.picked.emit([dict(index=-1, value=input + '\n')])
 
 	@QtCore.Slot(int, str)
 	def request_next_from_history(self, index, input):
@@ -211,7 +211,7 @@ class Menu(QtCore.QObject):
 
 	def _emit_selection(self):
 		if self._results:
-			value = self._results[self._index].value
+			value = self._results[self._index]['value']
 			self.selected.emit(self._index, value)
 
 

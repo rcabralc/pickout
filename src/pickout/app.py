@@ -1,4 +1,3 @@
-from elect import Entry
 from menu import Menu
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtWebEngineCore import QWebEngineSettings
@@ -10,13 +9,6 @@ import json
 import os
 import re
 import sys
-
-
-class AsJSONEncoder(json.JSONEncoder):
-	def default(self, o):
-		if hasattr(o, 'as_json'):
-			return o.as_json() if callable(o.as_json) else o.as_json
-		return super(AsJSONEncoder, self).default(o)
 
 
 class Filter(QtCore.QObject):
@@ -211,12 +203,11 @@ class Picker(QtCore.QObject):
 			return
 
 		if self._json_output:
-			selection = [Entry(e.index, e.value.rstrip()) for e in selection]
-			sys.stdout.write(json.dumps(selection, cls=AsJSONEncoder))
+			sys.stdout.write(selection)
 			sys.stdout.write(os.linesep)
 		else:
 			for entry in selection:
-				sys.stdout.write(entry.value)
+				sys.stdout.write(entry['value'].rstrip(os.linesep) + os.linesep)
 			if self._loop:
 				sys.stdout.write(os.linesep)
 
