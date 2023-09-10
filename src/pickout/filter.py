@@ -128,5 +128,5 @@ class MainLoop:
 
 
 if __name__ == '__main__':
-	limit = (int(sys.argv[1]) if len(sys.argv) > 1 else None) or None
+	limit = int(sys.argv[1])
 	MainLoop(limit).start()

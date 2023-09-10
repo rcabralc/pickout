@@ -492,7 +492,7 @@ class Filter:
 
 
 class Ranking:
-	def __init__(self, matches, limit=None, reverse=False):
+	def __init__(self, matches, limit, reverse=False):
 		self._matches = matches
 		self._limit = limit
 		self._reverse = reverse
@@ -500,8 +500,6 @@ class Ranking:
 	def __iter__(self):
 		key = operator.attrgetter('rank')
 
-		if self._limit is None:
-			return iter(sorted(self._matches, key=key, reverse=self._reverse))
-		elif self._reverse:
+		if self._reverse:
 			return iter(heapq.nlargest(self._limit, self._matches, key=key))
 		return iter(heapq.nsmallest(self._limit, self._matches, key=key))

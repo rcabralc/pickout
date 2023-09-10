@@ -57,7 +57,7 @@ Options:
     -l <limit>, --limit <limit>
         [default: 20]
 
-        Limit output up to <limit> results.  Use zero to not limit output.
+        Show up to <limit> items.
 
     --loop
         Don't quit until SIGTERM is received or the menu window is closed, and

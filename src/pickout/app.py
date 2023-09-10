@@ -19,9 +19,9 @@ class Filter(QtCore.QObject):
 	_path = os.path.join(os.path.dirname(__file__), 'filter.py')
 	_process = None
 
-	def __init__(self, limit=None):
+	def __init__(self, limit):
 		super(Filter, self).__init__()
-		self._limit = limit or None
+		self._limit = limit
 
 	@QtCore.Slot(bool)
 	def run(self, loop=False):
@@ -31,15 +31,12 @@ class Filter(QtCore.QObject):
 				self.quitted.emit()
 				return
 			options = self._fix_options(**json.loads(line))
-			limit = options.get('limit')
+			limit = options['limit']
 		else:
 			options = {}
 			limit = self._limit
 
-		args = [sys.executable, self._path]
-		if limit is not None:
-			args.append(str(limit))
-
+		args = [sys.executable, self._path, str(limit)]
 		self._process = Popen(
 			args,
 			bufsize=0,
@@ -72,12 +69,11 @@ class Filter(QtCore.QObject):
 			completion_sep='',
 			debug=False,
 			home=None,
-			limit=20,
+			limit='20',
 			word_delimiters=None,
 			**kw
 		):
 		logger = sys.stderr if debug else None
-		limit = limit or None
 
 		return dict(
 			delimiters=list(word_delimiters or ''),
@@ -172,7 +168,7 @@ class Picker(QtCore.QObject):
 		self._menu = Menu(self._app)
 		self._view = MainView(self._menu, center=center)
 
-		self._filter = Filter(limit=options.get('limit'))
+		self._filter = Filter(limit=options['limit'])
 		self._filter.moveToThread(self._app._filter_thread)
 
 		self._menu.picked.connect(self._filter.stop)
