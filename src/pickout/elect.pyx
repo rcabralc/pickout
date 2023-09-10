@@ -110,19 +110,6 @@ class Pattern:
 		return self.length > 0
 
 
-class SmartCasePattern(Pattern):
-	def __init__(self, pattern):
-		super(SmartCasePattern, self).__init__(pattern)
-
-		pattern_lower = self.value.lower()
-
-		if pattern_lower != self.value:
-			self.ignore_case = False
-		else:
-			self.value = pattern_lower
-			self.ignore_case = True
-
-
 cdef class FuzzyPattern:
 	cdef public str value
 	cdef public int length
