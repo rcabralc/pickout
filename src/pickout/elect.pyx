@@ -90,26 +90,6 @@ cdef class Entry:
 		return dict(id=self.id, value=self.value, data=self.data)
 
 
-class Pattern:
-	def __init__(self, pattern):
-		self.value = unicodedata.normalize('NFKD', pattern)
-		self.length = len(pattern) if pattern else 0
-
-	def __eq__(self, other):
-		if isinstance(other, type(self)):
-			return self.value == other.value
-		return False
-
-	def __hash__(self):
-		return hash(self.value)
-
-	def __len__(self):
-		return self.length
-
-	def __bool__(self):
-		return self.length > 0
-
-
 cdef class FuzzyPattern:
 	cdef public str value
 	cdef public int length
@@ -262,11 +242,12 @@ cdef class FuzzyPattern:
 		return Match.present(v_length - match_score, indices)
 
 
-class RegexPattern(Pattern):
+class RegexPattern:
 	prefix = '@/'
 
 	def __init__(self, pattern, ignore_bad_patterns=True):
-		super(RegexPattern, self).__init__(pattern)
+		self.value = unicodedata.normalize('NFKD', pattern)
+		self.length = len(pattern) if pattern else 0
 		self._can_match = False
 		if pattern:
 			self.value = '(?iu)' + pattern
@@ -277,6 +258,20 @@ class RegexPattern(Pattern):
 				if not ignore_bad_patterns:
 					raise
 				self._can_match = False
+
+	def __eq__(self, other):
+		if isinstance(other, type(self)):
+			return self.value == other.value
+		return False
+
+	def __hash__(self):
+		return hash(self.value)
+
+	def __len__(self):
+		return self.length
+
+	def __bool__(self):
+		return self.length > 0
 
 	def __contains__(self, _other):
 		return False
@@ -461,7 +456,7 @@ class Filter:
 			FuzzyPattern,
 			RegexPattern,
 		)
-		if isinstance(pattern, Pattern) or isinstance(pattern, FuzzyPattern):
+		if isinstance(pattern, RegexPattern) or isinstance(pattern, FuzzyPattern):
 			return pattern
 		for patternType in patternTypes:
 			if pattern.startswith(patternType.prefix):
