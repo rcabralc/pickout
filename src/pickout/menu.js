@@ -119,10 +119,7 @@
 					})
 
 					$cell.append($title)
-
-					if (item.data.subtext) {
-						$cell.append(`<p class="subtext">${item.data.subtext}</p>`)
-					}
+					$cell.append(`<p class="subtext">${item.data.subtext}</p>`)
 
 					cells.push($cell)
 				} else {
