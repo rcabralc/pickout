@@ -15,11 +15,12 @@ class Filter(QtCore.QObject):
 	quitted = QtCore.Signal()
 	ready = QtCore.Signal(dict)
 	response = QtCore.Signal(dict)
+	_default_limit = 20
 	_enc = 'utf-8'
-	_path = os.path.join(os.path.dirname(__file__), 'filter.py')
+	_path = os.path.join(os.path.dirname(__file__), 'filter')
 	_process = None
 
-	def __init__(self, limit):
+	def __init__(self, limit=None):
 		super(Filter, self).__init__()
 		self._limit = limit
 
@@ -31,12 +32,12 @@ class Filter(QtCore.QObject):
 				self.quitted.emit()
 				return
 			options = self._fix_options(**json.loads(line))
-			limit = options['limit']
+			limit = options.get('limit')
 		else:
 			options = {}
 			limit = self._limit
 
-		args = [sys.executable, self._path, str(limit)]
+		args = [self._path, str(limit or self._default_limit)]
 		self._process = Popen(
 			args,
 			bufsize=0,
@@ -69,7 +70,6 @@ class Filter(QtCore.QObject):
 			completion_sep='',
 			debug=False,
 			home=None,
-			limit='20',
 			word_delimiters=None,
 			**kw
 		):
@@ -78,7 +78,6 @@ class Filter(QtCore.QObject):
 		return dict(
 			delimiters=list(word_delimiters or ''),
 			home_input=home,
-			limit=limit,
 			logger=logger,
 			sep=completion_sep,
 			**kw
@@ -168,7 +167,7 @@ class Picker(QtCore.QObject):
 		self._menu = Menu(self._app)
 		self._view = MainView(self._menu, center=center)
 
-		self._filter = Filter(limit=options['limit'])
+		self._filter = Filter(limit=options.get('limit'))
 		self._filter.moveToThread(self._app._filter_thread)
 
 		self._menu.picked.connect(self._filter.stop)
@@ -199,8 +198,7 @@ class Picker(QtCore.QObject):
 			return
 
 		if self._json_output:
-			sys.stdout.write(selection)
-			sys.stdout.write(os.linesep)
+			sys.stdout.write(json.dumps(selection) + os.linesep)
 		else:
 			for entry in selection:
 				sys.stdout.write(entry['value'].rstrip(os.linesep) + os.linesep)
