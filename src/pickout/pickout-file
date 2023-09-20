@@ -160,21 +160,21 @@ def main(args):
 			with sed:
 				with grep(root, paths, globs, hidden, no_ignore) as rg:
 					files, _ = sed.communicate(rg.stdout.read())
-					results = set(iter(io.BytesIO(files).readline, b''))
 
 					add_pardir = root != initial_root
 					choice = choose(pickout, files, args, root, home, path, add_pardir)
 
-					if not choice.rstrip('\n'):
+					if not choice:
 						break
 
-					path = os.path.normpath(os.path.join(root, choice.rstrip('\n')))
+					choice_value = choice['value']
+					path = os.path.normpath(os.path.join(root, choice_value.rstrip('\n')))
 
 					if not os.path.isdir(path):
 						print(path)
 						break
 
-					if choice.encode('utf-8') in results:
+					if choice['index'] != -1:
 						root = initial_root
 						path = os.path.relpath(path, root) + os.path.sep
 						if (path == os.curdir + os.path.sep or
@@ -242,14 +242,8 @@ def choose(pickout, files, args, root, home=None, input='', add_pardir=True):
 
 	pickout.stdin.write(files + b'\n')
 
-	choice = b''
-	for line in pickout.stdout:
-		if (line := line.rstrip(b'\n')):
-			choice = line + b'\n'
-			continue
-		break
-
-	return choice.decode('utf-8')
+	choices = json.loads(pickout.stdout.readline() or '[]')
+	return choices[-1] if choices else None
 
 
 if __name__ == '__main__':
