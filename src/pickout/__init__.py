@@ -12,9 +12,10 @@ Usage:
             [--json-output]
             [--limit=<limit>]
             [--no-center]
+            [--no-modal]
             [--title=<title>]
             [--word-delimiters=<delimiters>]
-    pickout --loop [--app-name=<name>] [--json-output] [--no-center]
+    pickout --loop [--app-name=<name>] [--json-output] [--no-center] [--no-modal]
 
 Options:
     --accept-input
@@ -78,6 +79,9 @@ Options:
         window.  Disabling centering will cause the menu to not behave like a
         modal window and, as such, window managers may decide to place and size
         the window as it fits.
+
+    --no-modal
+        Do not add ApplicationModal role to the window.
 
     --title <title>
         Set the window title to <title>.
@@ -150,6 +154,7 @@ def main(args):
 		json_output=args['--json-output'],
 		limit=args['--limit'],
 		loop=args['--loop'],
+		modal=not args['--no-modal'],
 		title=args['--title'],
 		word_delimiters=args['--word-delimiters']
 	)

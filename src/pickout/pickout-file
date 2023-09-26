@@ -11,6 +11,7 @@ Usage:
                  [--path=<path>]
                  [--no-center]
                  [--no-ignore]
+                 [--no-modal]
                  [--title=<title>]
                  [<dir>...]
 
@@ -25,6 +26,7 @@ Options:
     --completion-sep <sep>
     --home <input>
     --no-center
+    --no-modal
     --title <title>
         Options passed down to pickout.
 
@@ -205,6 +207,8 @@ def pickout_cmd_args(args):
 	cmd_args = [sys.executable, script_path, '--loop', '--json-output']
 	if args['--no-center']:
 		cmd_args.append('--no-center')
+	if args['--no-modal']:
+		cmd_args.append('--no-modal')
 	if value := args['--app-name']:
 		cmd_args.extend(['--app-name', value])
 	return cmd_args
