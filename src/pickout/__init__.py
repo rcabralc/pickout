@@ -100,7 +100,7 @@ Key bindings:
     Ctrl+Enter
         Accept the input, that is, print it to STDOUT and exit.
 
-    Esc or Ctrl+Space
+    Esc or Ctrl+D or Ctrl+Space
         Quit, without printing anything.
 
     Tab

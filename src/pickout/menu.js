@@ -393,6 +393,7 @@
 			keyUpHandlers.Escape = menu.dismiss
 			keyUpHandlers['Control-Enter'] = acceptInput
 			keyUpHandlers['Control-Space'] = keyUpHandlers.Escape
+			keyUpHandlers['Control-D'] = keyUpHandlers.Escape
 			keyUpHandlers.Tab = complete
 
 			keyDownHandlers['Control-P'] = requestPrevFromHistory
