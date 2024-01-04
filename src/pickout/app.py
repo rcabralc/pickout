@@ -168,6 +168,7 @@ class Picker(QtCore.QObject):
 
 		self._menu = Menu(self._app)
 		self._view = MainView(self._menu, center=center, modal=modal)
+		self._view.setWindowTitle(options.get('title') or self._app_name)
 
 		self._filter = Filter(limit=options.get('limit'))
 		self._filter.moveToThread(self._app._filter_thread)
