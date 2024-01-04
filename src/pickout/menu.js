@@ -163,6 +163,7 @@
 		let patternTypes = []
 
 		$(window).on('focus', focus)
+		$(window).on('click', focus)
 		el.focus()
 
 		const inputStack = (function () {
@@ -233,7 +234,7 @@
 			return index
 		}
 
-		function focus (event) { if (!event || event?.target === el) el.focus() }
+		function focus (event) { if (!event || event?.target !== el) el.focus() }
 
 		function get () { return el.value }
 
