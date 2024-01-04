@@ -209,6 +209,8 @@ def pickout_cmd_args(args):
 		cmd_args.append('--no-center')
 	if args['--no-modal']:
 		cmd_args.append('--no-modal')
+	if value := args['--title']:
+		cmd_args.extend(['--title', value])
 	if value := args['--app-name']:
 		cmd_args.extend(['--app-name', value])
 	return cmd_args

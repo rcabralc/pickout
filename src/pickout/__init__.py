@@ -15,7 +15,7 @@ Usage:
             [--no-modal]
             [--title=<title>]
             [--word-delimiters=<delimiters>]
-    pickout --loop [--app-name=<name>] [--json-output] [--no-center] [--no-modal]
+    pickout --loop [--app-name=<name>] [--json-output] [--no-center] [--no-modal] [--title=<title>]
 
 Options:
     --accept-input
