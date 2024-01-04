@@ -30,7 +30,7 @@ Options:
     --title <title>
         Options passed down to pickout.
 
-        If no --title is given, "Select file from <dir>" is set.
+        If no --title is given, "Select file from <dir>…" is set.
 
     --hidden
     -g <pattern>..., --glob <pattern>...
@@ -229,7 +229,7 @@ def grep(root, paths, globs, hidden=False, no_ignore=False):
 
 
 def choose(pickout, files, args, root, home=None, input='', add_pardir=True):
-	title = args['--title'] or f'Select file from {root}'
+	title = args['--title'] or f'Select file from {root}…'
 	key = f'file://{root}'
 	loop_args = dict(
 		history_key=key,
