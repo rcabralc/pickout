@@ -324,7 +324,7 @@
 		let filterText = ''
 		let filterTimeout = null
 		let home = ''
-		let pending = -1
+		let pending = 0
 		let selection
 		let seq = -1
 
@@ -364,7 +364,7 @@
 				filterTimeout = null
 				pending++
 				menu.filter(++seq, filterText)
-			}, pending * 500)
+			}, pending * 50)
 		}
 
 		function history (index, value) {
