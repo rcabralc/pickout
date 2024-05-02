@@ -269,7 +269,7 @@ class Theme:
 		return self._rgb(color)
 
 	def _rgb(self, color):
-		return "%d,%d,%d" % (color.red(), color.green(), color.blue())
+		return "%d %d %d" % (color.red(), color.green(), color.blue())
 
 
 def run(**kw):

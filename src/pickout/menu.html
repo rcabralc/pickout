@@ -6,20 +6,17 @@
 		<script type="text/javascript" src="jquery.js"></script>
 		<script type="text/javascript" src="menu.js"></script>
 
-		<style type="text/css" id="scrollbar-style-height"></style>
-		<style type="text/css" id="scrollbar-style-position"></style>
-
 		<style type="text/css">
 			:root {
-				--background-color: 192,192,192;
-				--color: 0,0,0;
-				--prompt-color: 0,0,255;
-				--prompt-over-limit-color: 192,0,192;
-				--input-background-color: 255,255,255;
-				--input-history-color: 0,0,255;
+				--background-color: 192 192 192;
+				--color: 0 0 0;
+				--prompt-color: 0 0 255;
+				--prompt-over-limit-color: 192 0 192;
+				--input-background-color: 255 255 255;
+				--input-history-color: 0 0 255;
 				--entries-alternate-background-color: var(--background-color);
-				--entries-selected-color: 255,255,255;
-				--entries-selected-background-color: 0,0,128;
+				--entries-selected-color: 255 255 255;
+				--entries-selected-background-color: 0 0 128;
 				--icon-size: 16px;
 			}
 
@@ -122,35 +119,22 @@
 				padding: 0;
 			}
 
-			#scrollbar {
-				padding: 3px;
-				width: 12px;
-			}
-
 			#prompt-box,
-			.input,
-			#scrollbar {
+			.input {
 				box-sizing: border-box;
 			}
 
-			#entries,
-			#scrollbar .track {
+			#entries {
 				height: 100%;
 			}
 
-			#entries-box,
-			#scrollbar .track {
+			#entries-box {
+				height: calc(1px * var(--visible-height));
 				position: relative;
-			}
-
-			#scrollbar .thumb {
-				background-color: rgba(0, 0, 0, 0.3);
-				border-radius: 4px;
 			}
 
 			#prompt-box,
 			.input,
-			#scrollbar .thumb,
 			#entries table {
 				width: 100%;
 			}
@@ -166,7 +150,7 @@
 			#prompt-box.not-found .input,
 			.counters,
 			#entries tr {
-				color: rgba(var(--color),0.6);
+				color: rgb(var(--color) / 0.6);
 			}
 
 			#entries tr:nth-child(2n) {
@@ -212,29 +196,38 @@
 				color: rgb(var(--color));
 			}
 
-			#entries::after {
-				background-image: linear-gradient(to bottom, rgba(var(--background-color),0) 25%, rgba(var(--background-color),0.5));
+			#entries-box::after {
+				background-image: linear-gradient(to bottom, rgb(var(--background-color) / 0) 25%, rgb(var(--background-color) / 0.5));
 				bottom: 0;
-				content: "";
 				left: 0;
 				pointer-events: none;
 			}
 
-			#scrollbar,
-			#scrollbar .thumb,
-			#entries::after {
+			#entries-box::after,
+			#entries-box::before {
+				content: '';
+			}
+
+			#entries-box::after,
+			#entries-box::before {
 				position: absolute;
 			}
 
-			#scrollbar,
-			#scrollbar .thumb,
-			#entries::after {
+			#entries-box::after {
 				right: 0;
+				top: 0;
 			}
 
-			#scrollbar,
-			#entries::after {
-				top: 0;
+			#entries-box::before {
+				--clearance: 2px;
+				--radius: 2px;
+				background-color: rgb(0 0 0 / 0.3);
+				border-radius: var(--radius);
+				display: var(--sb-display);
+				height: calc(100% * var(--visible-height) / var(--total-height) - 2 * var(--clearance));
+				right: var(--clearance);
+				top: calc(100% * var(--scroll) / var(--total-height) + var(--clearance));
+				width: calc(2 * var(--radius));
 			}
 
 			/* progress styling is based on Material UI and copied from
@@ -242,7 +235,7 @@
 			 */
 			progress {
 				appearance: none;
-				background-color: rgb(var(--entries-selected-background-color),.12);
+				background-color: rgb(var(--entries-selected-background-color) / .12);
 				border: none;
 				color: rgb(var(--entries-selected-background-color));
 				display: block;
@@ -397,8 +390,6 @@
 					<tr><td colspan="10">Normal entry</td></tr>
 				</table>-->
 			</div>
-
-			<div id="scrollbar"><div class="track"><div class="thumb"></div></div></div>
 		</div>
 	</body>
 </html>

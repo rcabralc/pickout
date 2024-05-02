@@ -18,11 +18,7 @@
 
 	$(function () {
 		const counters = buildCounters($('#prompt-box .counters')[0])
-		const entries = buildEntries(
-			$('#entries'),
-			$('#entries-box'),
-			$('#scrollbar')
-		)
+		const entries = buildEntries($('#entries'), $('#entries-box'))
 		const input = buildInput($('#prompt-box .input')[0])
 		const menu = Object.keys(bridge).reduce((bridge, method) => {
 			bridge[method] = (...args) => global.bridge[method](...args)
@@ -53,35 +49,28 @@
 		}
 	}
 
-	function buildEntries ($el, $box, $sb) {
-		$(window).on('resize', adjustHeight)
+	function buildEntries ($el, $box) {
+		const box = $box[0]
+		window.addEventListener('resize', adjustScroll)
 		$el.on('scroll', adjustScroll)
-		adjustHeight()
+		adjustScroll()
 
 		return { select, update }
 
-		function adjustHeight() {
-			const height = $(window).height() - $box.offset().top
-			$box.height(height)
-			$sb.outerHeight(height)
-			adjustScroll()
-		}
-
 		function adjustScroll() {
-			const visibleHeight = $box.height()
+			const visibleHeight = window.innerHeight - box.getBoundingClientRect().top
 			const scroll = $el.scrollTop()
 			const totalHeight = $el.find('> table').outerHeight()
+			const totalHeightPx = `${totalHeight}px`
+
+			box.style.setProperty('--visible-height', visibleHeight)
+			box.style.setProperty('--total-height', totalHeight)
+			box.style.setProperty('--scroll', scroll)
 
 			if (totalHeight > visibleHeight) {
-				const thumbHeight = 100 * visibleHeight / totalHeight
-				const top = 100 * scroll / totalHeight
-
-				$sb.find('.thumb').show().css({
-					height: thumbHeight + '%',
-					top: top + '%',
-				})
+				box.style.setProperty('--sb-display', 'block')
 			} else {
-				$sb.find('.thumb').hide().css({ height: 0, top: 0 })
+				box.style.setProperty('--sb-display', 'none')
 			}
 		}
 
