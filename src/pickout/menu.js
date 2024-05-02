@@ -106,7 +106,9 @@
 				const cells = []
 
 				if (item.data.icon) {
-					cells.push($(`<td class="icon"><img src="${item.data.icon}" /></td>`))
+					cells.push($(`<td class="icon"></td>`).append(
+						$(document.createElement('img')).attr('src', item.data.icon)
+					))
 				}
 
 				if (item.data.subtext) {
@@ -114,12 +116,12 @@
 					const $title = $(document.createElement('p'))
 
 					item.partitions.forEach(({ unmatched, matched }) => {
-						$title.push(unmatched)
-						$title.push($(`<span class="match">${matched}</span>`))
+						$title.append(document.createTextNode(unmatched))
+						$title.append($(`<span class="match"></span>`).text(matched))
 					})
 
 					$cell.append($title)
-					$cell.append(`<p class="subtext">${item.data.subtext}</p>`)
+					$cell.append($(`<p class="subtext"></p>`).text(item.data.subtext))
 
 					cells.push($cell)
 				} else {
@@ -129,13 +131,13 @@
 							if (i) {
 								cells.push($(document.createElement('td')))
 							}
-							cells[cells.length - 1].append(text)
+							cells[cells.length - 1].append(document.createTextNode(text))
 						})
 						matched.split('\t').forEach((text, i) => {
 							if (i) {
 								cells.push($(document.createElement('td')))
 							}
-							cells[cells.length - 1].append($(`<span class="match">${text}</span>`))
+							cells[cells.length - 1].append($(`<span class="match"></span>`).text(text))
 						})
 					})
 				}
