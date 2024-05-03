@@ -15,7 +15,7 @@ class Filter(QtCore.QObject):
 	quitted = QtCore.Signal()
 	ready = QtCore.Signal(dict)
 	response = QtCore.Signal(dict)
-	_default_limit = 20
+	_default_limit = 50
 	_enc = 'utf-8'
 	_path = os.path.join(os.path.dirname(__file__), 'filter')
 	_process = None

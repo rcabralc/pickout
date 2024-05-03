@@ -56,7 +56,7 @@ Options:
         Return the selection as a JSON array.
 
     -l <limit>, --limit <limit>
-        [default: 20]
+        [default: 50]
 
         Show up to <limit> items.
 
