@@ -12,7 +12,7 @@ import sys
 
 
 class Filter(QtCore.QObject):
-	quitted = QtCore.Signal()
+	terminated = QtCore.Signal()
 	ready = QtCore.Signal(dict)
 	response = QtCore.Signal(dict)
 	_default_limit = 50
@@ -29,7 +29,7 @@ class Filter(QtCore.QObject):
 		if loop:
 			line = sys.stdin.readline().strip()
 			if not line:
-				self.quitted.emit()
+				self.terminated.emit()
 				return
 			options = self._fix_options(**json.loads(line))
 			limit = options.get('limit')
@@ -179,7 +179,7 @@ class Picker(QtCore.QObject):
 
 		self._started.connect(self._filter.run)
 
-		self._filter.quitted.connect(lambda: self.quit())
+		self._filter.terminated.connect(lambda: self.exit(1))
 		self._filter.ready.connect(self._ready)
 		self._filter.response.connect(self._menu.update_list)
 
@@ -188,16 +188,16 @@ class Picker(QtCore.QObject):
 	def exec(self):
 		self._started.emit(self._loop)
 		self._view.restore()
-		self._app.exec()
+		return self._app.exec()
 
-	def quit(self):
+	def exit(self, code):
 		self._filter.stop()
 		self._app._filter_thread.quit()
-		self._app.quit()
+		self._app.exit(code)
 
 	def _picked(self, selection):
 		if not selection:
-			self.quit()
+			self.exit(1)
 			return
 
 		if self._json_output:
@@ -213,7 +213,7 @@ class Picker(QtCore.QObject):
 		if self._loop:
 			self._started.emit(True)
 		else:
-			self.quit()
+			self.exit(0)
 
 	@QtCore.Slot(dict)
 	def _ready(self, options):

@@ -142,7 +142,7 @@ import sys
 
 
 def main(args):
-	return run(
+	return sys.exit(run(
 		accept_input=args['--accept-input'],
 		app_name=args['--app-name'],
 		center=not args['--no-center'],
@@ -157,7 +157,7 @@ def main(args):
 		modal=not args['--no-modal'],
 		title=args['--title'],
 		word_delimiters=args['--word-delimiters']
-	)
+	))
 
 
 if __name__ == '__main__':
