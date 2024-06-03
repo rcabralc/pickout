@@ -14,7 +14,6 @@ Usage:
             [--no-center]
             [--title=<title>]
             [--word-delimiters=<delimiters>]
-    pickout --loop [--app-name=<name>] [--json-output] [--no-center] [--title=<title>]
 
 Options:
     --accept-input
@@ -58,17 +57,6 @@ Options:
         [default: 50]
 
         Show up to <limit> items.
-
-    --loop
-        Don't quit until SIGTERM is received or the menu window is closed, and
-        wait new items on STDIN after printing a selection to STDOUT, in a
-        loop.
-
-        Options are given in STDIN as a JSON object in a single line.  Next
-        lines are the items, until a blank line is read (which is ignored).
-
-        A selection is written to STDOUT, followed by a blank line.
-        If no selection is made, a single blank line is printed.
 
     --no-center
         Do not move the menu window to the center of the screen.
@@ -147,7 +135,6 @@ def main(args):
 		input=args['--input'],
 		json_output=args['--json-output'],
 		limit=args['--limit'],
-		loop=args['--loop'],
 		title=args['--title'],
 		word_delimiters=args['--word-delimiters']
 	))

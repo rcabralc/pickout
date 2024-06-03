@@ -26,18 +26,9 @@ class Filter(QtCore.QObject):
 		self._word_delimiters = word_delimiters
 
 	@QtCore.Slot(bool)
-	def run(self, loop=False):
-		if loop:
-			line = sys.stdin.readline().strip()
-			if not line:
-				self.terminated.emit()
-				return
-			options = self._fix_options(**json.loads(line))
-			limit = options.get('limit')
-		else:
-			options = self._fix_options(word_delimiters=self._word_delimiters)
-			limit = self._limit
-
+	def run(self):
+		options = self._fix_options(word_delimiters=self._word_delimiters)
+		limit = self._limit
 		args = [self._path, str(limit or self._default_limit)]
 		self._process = Popen(
 			args,
@@ -47,7 +38,7 @@ class Filter(QtCore.QObject):
 			stderr=sys.stderr
 		)
 
-		entries = iter(sys.stdin.readline, '\n' if loop else '')
+		entries = iter(sys.stdin.readline, '')
 		non_empty_entries = ''.join(e for e in entries if e.rstrip())
 		self._process.stdin.write((non_empty_entries + '\n').encode(self._enc))
 		self.ready.emit(options)
@@ -142,20 +133,18 @@ class MainView(QWebEngineView):
 
 
 class Picker(QtCore.QObject):
-	_started = QtCore.Signal(bool)
+	_started = QtCore.Signal()
 
 	def __init__(
 			self,
 			app_name='pickout',
 			center=True,
 			json_output=False,
-			loop=False,
 			**options
 		):
 		super(Picker, self).__init__()
 		self._app_name = app_name
 		self._json_output = json_output
-		self._loop = loop
 		self._options = options
 
 		self._app = QtWidgets.QApplication(sys.argv)
@@ -186,7 +175,7 @@ class Picker(QtCore.QObject):
 		self._app._filter_thread.start()
 
 	def exec(self):
-		self._started.emit(self._loop)
+		self._started.emit()
 		self._view.restore()
 		return self._app.exec()
 
@@ -205,15 +194,9 @@ class Picker(QtCore.QObject):
 		else:
 			for entry in selection:
 				sys.stdout.write(entry['value'].rstrip(os.linesep) + os.linesep)
-			if self._loop:
-				sys.stdout.write(os.linesep)
 
 		sys.stdout.flush()
-
-		if self._loop:
-			self._started.emit(True)
-		else:
-			self.exit(0)
+		self.exit(0)
 
 	@QtCore.Slot(dict)
 	def _ready(self, options):
