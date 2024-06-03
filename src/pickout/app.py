@@ -20,9 +20,10 @@ class Filter(QtCore.QObject):
 	_path = os.path.join(os.path.dirname(__file__), 'filter')
 	_process = None
 
-	def __init__(self, limit=None):
+	def __init__(self, limit=None, word_delimiters=None):
 		super(Filter, self).__init__()
 		self._limit = limit
+		self._word_delimiters = word_delimiters
 
 	@QtCore.Slot(bool)
 	def run(self, loop=False):
@@ -34,7 +35,7 @@ class Filter(QtCore.QObject):
 			options = self._fix_options(**json.loads(line))
 			limit = options.get('limit')
 		else:
-			options = {}
+			options = self._fix_options(word_delimiters=self._word_delimiters)
 			limit = self._limit
 
 		args = [self._path, str(limit or self._default_limit)]
@@ -170,7 +171,10 @@ class Picker(QtCore.QObject):
 		self._view = MainView(self._menu, center=center, modal=modal)
 		self._view.setWindowTitle(options.get('title') or self._app_name)
 
-		self._filter = Filter(limit=options.get('limit'))
+		self._filter = Filter(
+			limit=options.get('limit'),
+			word_delimiters=options.get('word_delimiters')
+		)
 		self._filter.moveToThread(self._app._filter_thread)
 
 		self._menu.picked.connect(self._filter.stop)
