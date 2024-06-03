@@ -213,7 +213,9 @@ def pickout_cmd_args(args):
 
 
 def grep(root, paths, globs, hidden=False, no_ignore=False):
-	args = [which('rg'), '--files', '--follow']
+	if not (rg := which('rg')):
+		raise RuntimeError('missing ripgrep.')
+	args = [rg, '--files', '--follow']
 	if hidden:
 		args.append('--hidden')
 	if no_ignore:
