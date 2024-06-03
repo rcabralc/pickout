@@ -55,9 +55,9 @@ Options:
     --no-center
         Do not move the menu window to the center of the screen.
 
-        By default, the menu is centered in the screen.  Disabling centering will
-        cause the menu to not be positioned at the center of the screen and, as
-        such, window managers may decide to place the window as it fits.
+        By default, the menu is centered in the screen.  Disabling centering
+        will cause the menu to not be positioned at the center of the screen
+        and, as such, window managers may decide to place the window as it fits.
 
     --title <title>
         Set the window title to <title>.
