@@ -12,10 +12,9 @@ Usage:
             [--json-output]
             [--limit=<limit>]
             [--no-center]
-            [--no-modal]
             [--title=<title>]
             [--word-delimiters=<delimiters>]
-    pickout --loop [--app-name=<name>] [--json-output] [--no-center] [--no-modal] [--title=<title>]
+    pickout --loop [--app-name=<name>] [--json-output] [--no-center] [--title=<title>]
 
 Options:
     --accept-input
@@ -74,14 +73,9 @@ Options:
     --no-center
         Do not move the menu window to the center of the screen.
 
-        By default, the menu is centered and behaves like a modal window, as a
-        hint to window managers that they should not try to position the
-        window.  Disabling centering will cause the menu to not behave like a
-        modal window and, as such, window managers may decide to place and size
-        the window as it fits.
-
-    --no-modal
-        Do not add ApplicationModal role to the window.
+        By default, the menu is centered in the screen.  Disabling centering will
+        cause the menu to not be positioned at the center of the screen and, as
+        such, window managers may decide to place the window as it fits.
 
     --title <title>
         Set the window title to <title>.
@@ -154,7 +148,6 @@ def main(args):
 		json_output=args['--json-output'],
 		limit=args['--limit'],
 		loop=args['--loop'],
-		modal=not args['--no-modal'],
 		title=args['--title'],
 		word_delimiters=args['--word-delimiters']
 	))

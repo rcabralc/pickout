@@ -88,7 +88,7 @@ class Filter(QtCore.QObject):
 class MainView(QWebEngineView):
 	_basedir = os.path.dirname(__file__)
 
-	def __init__(self, menu, center=None, modal=True):
+	def __init__(self, menu, center=None):
 		super(MainView, self).__init__()
 
 		with open(os.path.join(self._basedir, 'menu.html')) as f:
@@ -102,7 +102,6 @@ class MainView(QWebEngineView):
 
 		self._center = center
 		self._menu = menu
-		self._modal = modal
 		channel = QWebChannel()
 
 		def on_load_finished(*_a, **kw):
@@ -124,8 +123,6 @@ class MainView(QWebEngineView):
 		)
 
 	def restore(self):
-		if self._modal:
-			self.setWindowModality(QtCore.Qt.ApplicationModal)
 		self.activateWindow()
 		self.showNormal()
 		if self._center:
@@ -153,7 +150,6 @@ class Picker(QtCore.QObject):
 			center=True,
 			json_output=False,
 			loop=False,
-			modal=True,
 			**options
 		):
 		super(Picker, self).__init__()
@@ -168,7 +164,7 @@ class Picker(QtCore.QObject):
 		self._app._filter_thread = QtCore.QThread()
 
 		self._menu = Menu(self._app)
-		self._view = MainView(self._menu, center=center, modal=modal)
+		self._view = MainView(self._menu, center=center)
 		self._view.setWindowTitle(options.get('title') or self._app_name)
 
 		self._filter = Filter(
