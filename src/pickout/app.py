@@ -25,7 +25,7 @@ class Filter(QtCore.QObject):
 		self._limit = limit
 		self._word_delimiters = word_delimiters
 
-	@QtCore.Slot(bool)
+	@QtCore.Slot()
 	def run(self):
 		options = self._fix_options(word_delimiters=self._word_delimiters)
 		limit = self._limit
