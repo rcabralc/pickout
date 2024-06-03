@@ -154,7 +154,7 @@ def main(args):
 	with pickout:
 		while True:
 			sed = Popen(
-				['sed', 's/\.\///'],
+				['sed', r's/\.\///'],
 				stdin=PIPE,
 				stdout=PIPE,
 				stderr=PIPE
