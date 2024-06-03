@@ -1,0 +1,235 @@
+#!/bin/sh
+
+set -e
+
+usage () {
+	echo "Usage:"
+	echo "	filepick [--glob=<glob> ...]"
+	echo "	         [--home=<home>]"
+	echo "	         [--input=<input>]"
+	echo "	         [--loop|--dir-opener=<opener>]"
+	echo "	         [--mode=<mode>]"
+	echo "	         [--no-center]"
+	echo "	         [--title=<title>]"
+	echo "	         [<root>]"
+}
+
+fail () {
+	>&2 echo "$1"
+	>&2 usage
+	exit 1
+}
+
+editor=${FILEPICK_EDITOR:-${VISUAL:-${EDITOR}}}
+globs=()
+while [ "$#" -gt 0 ]; do
+	case $1 in
+		--dir-opener=*)
+			arg="${1#*=}"
+			[ -z "$arg" ] && fail "--dir-opener requires argument"
+			[ -n "$dir_opener" ] && fail "--dir-opener set multiple times: $dir_opener, $arg"
+			dir_opener="$arg"
+			;;
+		--dir-opener)
+			shift
+			[ -z "$1" ] && fail "--dir-opener requires argument"
+			[ -n "$dir_opener" ] && fail "--dir-opener set multiple times: $dir_opener, $1"
+			dir_opener="$1"
+			;;
+
+		-g=*|--glob=*)
+			globs+=("--glob")
+			glob="${1#*=}"
+			[ -z "$glob" ] && fail "--glob requires argument"
+			globs+=("$glob")
+			;;
+		-g|--glob)
+			globs+=("--glob")
+			shift
+			glob="$1"
+			[ -z "$glob" ] && fail "--glob requires argument"
+			globs+=("$glob")
+			;;
+
+		-h|--help)
+			echo "filepick: select a file or directory using rg and pickout and open it using rifle, xdg-open or your text editor"
+			echo
+			usage
+			echo
+			echo "Options:"
+			echo "	--dir-opener=<opener>"
+			echo "	                 program used to open directories (default: xdg-open)."
+			echo "	--glob=<glob>    rg(1) option: --glob (multiple can be given)."
+			echo "	--home=<home>    pickout option --home."
+			echo "	--input=<input>  pickout option --input."
+			echo "	--loop           directories start a new session, loop until a non-directory is selected/entered."
+			echo "	--mode=<mode>    \"copy\", \"open\" or \"echo\", see below (defaults to \"open\")."
+			echo "	--no-center      pickout option --no-center."
+			echo "	--title=<title>  pickout option --title (a default one is used if not given)."
+			echo "	<root>           the root directory to select files from (defaults to \$HOME)."
+			echo
+			echo "Modes:"
+			echo "	copy             copy selection to Wayland clipboard."
+			echo "	open             open selection using rifle, xdg-open or your editor."
+			echo "	echo             echoes selection to standard output."
+			echo
+			echo "Environment variables:"
+			echo "	FILEPICK_EDITOR, VISUAL, EDITOR"
+			echo "	                 the editor to use to open text files."
+			echo "	FILEPICK_TERM, TERMCMD"
+			echo "	                 the terminal in which to use the editor or rifle, defaults to xterm."
+			exit 0
+			;;
+
+		# Contrary to other options, --home and --input accept an empty
+		# argument. They can be set to an empty string and reset to a non-empty
+		# string, but the opposite is not allowed.
+		--home=*)
+			arg="${1#*=}"
+			[ -n "$home" ] && fail "--home set multiple times: $home, $arg"
+			home="$arg"
+			;;
+		--home)
+			shift
+			[ -n "$home" ] && fail "--home set multiple times: $home, $1"
+			home="$1"
+			;;
+		--input=*)
+			arg="${1#*=}"
+			[ -n "$input" ] && fail "--input set multiple times: $input, $arg"
+			input="$arg"
+			;;
+		--input)
+			shift
+			[ -n "$input" ] && fail "--input set multiple times: $input, $1"
+			input="$1"
+			;;
+
+		--loop)
+			loop="true"
+			;;
+
+		--mode=*)
+			arg="${1#*=}"
+			[ -z "$arg" ] && fail "--mode requires argument"
+			[ -n "$mode" ] && fail "--mode set multiple times: $mode, $arg"
+			mode="$arg"
+			;;
+		--mode)
+			shift
+			[ -z "$1" ] && fail "--mode requires argument"
+			[ -n "$mode" ] && fail "--mode set multiple times: $mode, $1"
+			mode="$1"
+			;;
+
+		--no-center)
+			nocenter="--no-center"
+			;;
+
+		--title=*)
+			arg="${1#*=}"
+			[ -z "$arg" ] && fail "--title requires argument"
+			[ -n "$title" ] && fail "--title set multiple times: $title, $arg"
+			title="$arg"
+			;;
+		--title)
+			shift
+			[ -z "$1" ] && fail "--title requires argument"
+			[ -n "$title" ] && fail "--title set multiple times: $title, $1"
+			title="$1"
+			;;
+
+		*)
+			[ -n "$root" ] && fail "root set multiple times: $root, $1"
+			root="$1"
+			;;
+	esac
+
+	shift
+done
+
+if [ "$mode" = "copy" ]; then
+	title_suffix=" to copy filename"
+elif [ "$mode" = "open" ]; then
+	title_suffix=" to open or edit"
+elif [ "$mode" = "echo" ]; then
+	title_suffix=" to echo"
+elif [ -n "$mode" ]; then
+	fail "invalid mode $mode"
+else
+	mode="open"
+fi
+
+if [ -n "$loop" ] && [ -n "$dir_opener" ]; then
+	fail "use one of --loop or --dir-opener, not both"
+fi
+
+dir_opener=${dir_opener:-xdg-open}
+root=${root:-$HOME}
+title=${title:-"Select file${title_suffix}…"}
+
+while true; do
+	root="${root%/}"
+	cd "$root"
+	item=$(
+		rg \
+			--files \
+			--follow \
+			--hidden \
+			--no-ignore \
+			${globs[*]} \
+			2>/dev/null |
+		pickout \
+			$nocenter \
+			--accept-input \
+			--history-key "file://$PWD" \
+			--home "$home" \
+			--input "$input" \
+			--title "$title" \
+			--word-delimiters '/'
+	) || exit 1
+
+	# Treat item as a file/dir with respect to root unless it starts with /
+	case "$item" in /*) ;; *) false;; esac || item="$root/$item"
+
+	if ([ -d "$item" ] && [ -n "$loop" ]); then
+		# In loop mode, always deliver a file, never a directory. Change root
+		# and restart.
+		root="$item"
+		# Also, the initial input likely makes no sense anymore. Unset it.
+		input=""
+		continue
+	fi
+
+	[ "$mode" = "echo" ] && echo "$item" && exit 0
+
+	if [ "$mode" = "copy" ]; then
+		# Assume Wayland and copy item to the clipboard.
+		wl-copy "$item"
+		# Show a notification popup in the user's desktop.
+		command -v notify-send &>/dev/null && notify-send -u normal "filepick" "Copied $item"
+		exit 0
+	fi
+
+	# mode == "open"
+
+	# If this is a directory, open it and quit.
+	[ -d "$item" ] && exec $dir_opener "$item"
+
+	if [ -f "$item" ]; then
+		opener=rifle
+	else
+		# Not a file or a directory. Attempt to edit it (the user's editor will
+		# likely create a new file, possibly creating any necessary intermediary
+		# directory).
+		opener="$editor"
+	fi
+
+	# If attached to a terminal, just open the item from it.
+	[ -t 0 ] && exec $opener -- "$item"
+
+	# Otherwise, spawn a new terminal and then open the item.
+	term="${FILEPICK_TERM:-${TERMCMD:-xterm}} -e"
+	EDITOR="$editor" setsid $term $opener -- "$item" &
+	exit 0
+done
