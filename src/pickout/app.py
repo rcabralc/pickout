@@ -137,19 +137,18 @@ class Picker(QtCore.QObject):
 
 	def __init__(
 			self,
-			app_name='pickout',
 			center=True,
 			json_output=False,
 			**options
 		):
 		super(Picker, self).__init__()
-		self._app_name = app_name
+		self._app_name = 'pickout'
 		self._json_output = json_output
 		self._options = options
 
 		self._app = QtWidgets.QApplication(sys.argv)
-		self._app.setApplicationName(app_name)
-		self._app.setDesktopFileName(f'{app_name}.desktop')
+		self._app.setApplicationName(self._app_name)
+		self._app.setDesktopFileName(f'{self._app_name}.desktop')
 		self._app._filter_thread = QtCore.QThread()
 
 		self._menu = Menu(self._app)

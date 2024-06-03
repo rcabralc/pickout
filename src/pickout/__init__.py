@@ -3,7 +3,6 @@
 
 Usage:
     pickout [--accept-input]
-            [--app-name=<name>]
             [--completion-sep=<sep>]
             [--debug]
             [--history-key=<key>]
@@ -19,11 +18,6 @@ Options:
     --accept-input
         Allow any text typed in the search input to be accepted through
         Ctrl-Enter.
-
-    --app-name <name>
-        [default: pickout]
-
-        In X11 this will be added to the WM_CLASS property of the main window.
 
     --completion-sep <sep>
         Separator used for completion.  Without this, completion works by
@@ -126,7 +120,6 @@ import sys
 def main(args):
 	return sys.exit(run(
 		accept_input=args['--accept-input'],
-		app_name=args['--app-name'],
 		center=not args['--no-center'],
 		completion_sep=args['--completion-sep'],
 		debug=args['--debug'],
