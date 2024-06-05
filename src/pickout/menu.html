@@ -148,9 +148,13 @@
 			}
 
 			#prompt-box.not-found .input,
-			.counters,
-			#entries tr {
+			.counters {
 				color: rgb(var(--color) / 0.6);
+			}
+
+			html,
+			#entries tr {
+				color: rgb(var(--color));
 			}
 
 			#entries tr:nth-child(2n) {
@@ -191,13 +195,13 @@
 				transition: all .2s;
 			}
 
-			html,
 			#entries tr .match {
-				color: rgb(var(--color));
+				font-weight: bold;
+				text-decoration: underline;
 			}
 
 			#entries-box::after {
-				background-image: linear-gradient(to bottom, rgb(var(--background-color) / 0) 25%, rgb(var(--background-color) / 0.5));
+				background-image: linear-gradient(to bottom, rgb(var(--background-color) / 0) 25%, rgb(var(--background-color) / 0.75));
 				bottom: 0;
 				left: 0;
 				pointer-events: none;
