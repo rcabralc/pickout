@@ -4,7 +4,7 @@ set -e
 
 usage () {
 	echo "Usage:"
-	echo "	filepick [--glob=<glob> ...]"
+	echo "	filepick [--exclude=<pattern> ...]"
 	echo "	         [--home=<home>]"
 	echo "	         [--input=<input>]"
 	echo "	         [--loop|--dir-opener=<opener>]"
@@ -21,7 +21,7 @@ fail () {
 }
 
 editor=${FILEPICK_EDITOR:-${VISUAL:-${EDITOR}}}
-globs=()
+excludes=()
 while [ "$#" -gt 0 ]; do
 	case $1 in
 		--dir-opener=*)
@@ -37,29 +37,28 @@ while [ "$#" -gt 0 ]; do
 			dir_opener="$1"
 			;;
 
-		-g=*|--glob=*)
-			globs+=("--glob")
-			glob="${1#*=}"
-			[ -z "$glob" ] && fail "--glob requires argument"
-			globs+=("$glob")
+		-E=*|--exclude=*)
+			exclude="${1#*=}"
+			[ -z "$exclude" ] && fail "--exclude requires argument"
+			excludes+=("--exclude" "$exclude")
 			;;
-		-g|--glob)
-			globs+=("--glob")
+		-E|--exclude)
 			shift
-			glob="$1"
-			[ -z "$glob" ] && fail "--glob requires argument"
-			globs+=("$glob")
+			exclude="$1"
+			[ -z "$exclude" ] && fail "--exclude requires argument"
+			excludes+=("--exclude" "$exclude")
 			;;
 
 		-h|--help)
-			echo "filepick: select a file or directory using rg and pickout and open it using rifle, xdg-open or your text editor"
+			echo "filepick: select a file or directory using fd and pickout and open it using rifle, xdg-open or your text editor"
 			echo
 			usage
 			echo
 			echo "Options:"
 			echo "	--dir-opener=<opener>"
 			echo "	                 program used to open directories (default: xdg-open)."
-			echo "	--glob=<glob>    rg(1) option: --glob (multiple can be given)."
+			echo "	--exclude=<pattern>"
+			echo "	                 fd(1) option: --exclude (multiple can be given)."
 			echo "	--home=<home>    pickout option --home."
 			echo "	--input=<input>  pickout option --input."
 			echo "	--loop           directories start a new session, loop until a non-directory is selected/entered."
@@ -172,13 +171,12 @@ while true; do
 	root="${root%/}"
 	cd "$root"
 	item=$(
-		rg \
-			--files \
+		fd \
+			--type file \
 			--follow \
 			--hidden \
 			--no-ignore \
-			${globs[*]} \
-			2>/dev/null |
+			${excludes[*]} |
 		pickout \
 			$nocenter \
 			--accept-input \
