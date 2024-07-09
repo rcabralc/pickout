@@ -378,27 +378,25 @@
 		}
 
 		function setupEventHandlers () {
-			const keyUpHandlers = {}
-			const keyDownHandlers = {}
+			const keyHandlers = {}
 
-			keyUpHandlers.Enter = menu.accept_selected
-			keyUpHandlers.Escape = menu.dismiss
-			keyUpHandlers['Control-Enter'] = acceptInput
-			keyUpHandlers['Control-Space'] = keyUpHandlers.Escape
-			keyUpHandlers['Control-D'] = keyUpHandlers.Escape
-			keyUpHandlers.Tab = complete
-
-			keyDownHandlers['Control-P'] = requestPrevFromHistory
-			keyDownHandlers['Control-N'] = requestNextFromHistory
-			keyDownHandlers['Control-H'] = setHome
-			keyDownHandlers['Control-J'] = menu.select_next
-			keyDownHandlers['Control-K'] = menu.select_prev
-			keyDownHandlers['Control-M'] = filterWithSelected
-			keyDownHandlers['Control-U'] = clearInput
-			keyDownHandlers['Control-W'] = input.eraseWord
-			keyDownHandlers['Control-Y'] = input.redo
-			keyDownHandlers['Control-Z'] = input.undo
-			keyDownHandlers['Alt-P'] = input.alternatePattern
+			keyHandlers.Enter = swallow(menu.accept_selected)
+			keyHandlers.Escape = swallow(menu.dismiss)
+			keyHandlers.Tab = swallow(complete)
+			keyHandlers['Control-Enter'] = swallow(acceptInput)
+			keyHandlers['Control- '] = swallow(keyHandlers.Escape)
+			keyHandlers['Control-d'] = swallow(keyHandlers.Escape)
+			keyHandlers['Control-p'] = swallow(requestPrevFromHistory)
+			keyHandlers['Control-n'] = swallow(requestNextFromHistory)
+			keyHandlers['Control-h'] = swallow(setHome)
+			keyHandlers['Control-j'] = swallow(menu.select_next)
+			keyHandlers['Control-k'] = swallow(menu.select_prev)
+			keyHandlers['Control-m'] = swallow(filterWithSelected)
+			keyHandlers['Control-u'] = swallow(clearInput)
+			keyHandlers['Control-w'] = swallow(input.eraseWord)
+			keyHandlers['Control-y'] = swallow(input.redo)
+			keyHandlers['Control-z'] = swallow(input.undo)
+			keyHandlers['Alt-p'] = swallow(input.alternatePattern)
 
 			function acceptInput () { menu.accept_input(input.get()) }
 			function clearInput () { input.set('') }
@@ -418,11 +416,13 @@
 			}
 			function setHome () { if (home) input.set(home) }
 
-			function swallow(event, callback) {
-				event.preventDefault()
-				event.stopPropagation();
-				callback()
-				return false
+			function swallow(callback) {
+				return function (event) {
+					event.preventDefault()
+					event.stopPropagation()
+					callback()
+					return false
+				}
 			}
 
 			function key(event) {
@@ -433,39 +433,18 @@
 				if (event.shiftKey) mod += 'Shift-'
 				if (event.metaKey) mod += 'Meta-'
 
-				return mod + keyName(event.keyCode)
+				return mod + event.key
 			}
 
-			function keyName(code) {
-				switch (code) {
-					case 8:  return 'Backspace'
-					case 9:  return 'Tab'
-					case 13: return 'Enter'
-					case 16: return 'Shift'
-					case 17: return 'Control'
-					case 18: return 'Alt'
-					case 27: return 'Escape'
-					case 32: return 'Space'
-					case 81: return 'Meta'
-					default: return String.fromCharCode(code).toUpperCase()
-				}
-			}
-
-			$(document).on({
-				'keydown': function (e) {
-					const handler = keyDownHandlers[key(e)]
-					if (handler) return swallow(e, handler)
-				},
-				'keyup': function (e) {
-					(keyUpHandlers[key(e)] || (() => {}))()
-				},
-				'input': handleInput,
-				'change': handleChange,
-				'blur': function (e) {
-					e.preventDefault()
-					e.stopPropagation()
-					return false
-				}
+			document.addEventListener('keydown', function (event) {
+				return (keyHandlers[key(event)] || (() => {}))(event)
+			})
+			document.addEventListener('input', handleInput)
+			document.addEventListener('change', handleChange)
+			document.addEventListener('blur', function (event) {
+				event.preventDefault()
+				event.stopPropagation()
+				return false
 			})
 		}
 
