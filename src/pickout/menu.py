@@ -119,9 +119,9 @@ class Menu(QtCore.QObject):
 	def update_list(self, response):
 		if response['command'] == 'filter':
 			self._results = response['items']
-			self._index = self.__index
+			self._index = 0
 			items = [
-				dict(**item, selected=i == self._index)
+				dict(**item, selected=i == 0)
 				for i, item in enumerate(response['items'])
 			]
 
