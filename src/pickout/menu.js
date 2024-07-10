@@ -206,7 +206,9 @@
 				found = true
 				break
 			}
-			const nextPattern = found && patternTypes[i] || ''
+			const nextPattern = found
+				? patternTypes[i] || ''
+				: patternTypes[0]
 			const currPattern = found && patternTypes[i - 1] || ''
 
 			replace(nextPattern + word.slice(currPattern.length), start, end)
