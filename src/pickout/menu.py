@@ -78,6 +78,7 @@ class Menu(QtCore.QObject):
 	filtered = QtCore.Signal(int, int, int, list)
 	history = QtCore.Signal(int, str)
 	picked = QtCore.Signal(list)
+	refreshed = QtCore.Signal(dict)
 	requested = QtCore.Signal(dict)
 	selected = QtCore.Signal(int, str)
 	setup = QtCore.Signal(str)
@@ -150,7 +151,14 @@ class Menu(QtCore.QObject):
 		self.requested.emit(dict(
 			command='complete',
 			seq=0,
-			sep=self._completion_sep,
+			input=input,
+		))
+
+	@QtCore.Slot(str)
+	def refresh(self, input):
+		self.refreshed.emit(dict(
+			command='filter',
+			seq=0,
 			input=input,
 		))
 

@@ -11,6 +11,31 @@ import re
 import sys
 
 
+class StreamSource:
+	def __init__(self, stream, encoding):
+		self._stream = stream
+		self._enc = encoding
+		self.consumed = False
+
+	def pipe_to(self, out):
+		entries = (e for e in iter(self._stream.readline, '') if len(e))
+		data = (''.join(entry for entry in entries) + '\n').encode(self._enc)
+		self.consumed = True
+		out.write(data)
+
+
+class ProcessSource:
+	consumed = False
+
+	def __init__(self, command):
+		self._cmd = command
+
+	def pipe_to(self, out):
+		command = Popen(self._cmd, stdout=PIPE, stderr=sys.stderr, shell=True)
+		(data, _) = command.communicate()
+		out.write(data + b'\n')
+
+
 class Filter(QtCore.QObject):
 	terminated = QtCore.Signal()
 	ready = QtCore.Signal()
@@ -19,26 +44,24 @@ class Filter(QtCore.QObject):
 	_path = os.path.join(os.path.dirname(__file__), 'filter')
 	_process = None
 
-	def __init__(self, limit):
+	def __init__(self, source, limit):
 		super(Filter, self).__init__()
 		self._filter_args = [self._path, str(limit)]
+		self._source = source
 
 	@QtCore.Slot()
 	def run(self):
-		self._process = Popen(
-			self._filter_args,
-			bufsize=0,
-			stdin=PIPE,
-			stdout=PIPE,
-			stderr=sys.stderr
-		)
-
-		entries = iter(sys.stdin.readline, '')
-		non_empty_entries = ''.join(
-			e for e in entries if len(e) and not e.isspace()
-		)
-		self._process.stdin.write((non_empty_entries + '\n').encode(self._enc))
+		self._start()
 		self.ready.emit()
+
+	@QtCore.Slot(dict)
+	def refresh(self, request):
+		if not self._source.consumed:
+			self._start()
+		payload = json.dumps(request) + '\n'
+		self._process.stdin.write(payload.encode(self._enc))
+		line = self._process.stdout.readline().decode(self._enc)
+		self.response.emit(json.loads(line))
 
 	@QtCore.Slot(dict)
 	def request(self, request):
@@ -53,6 +76,18 @@ class Filter(QtCore.QObject):
 		if self._process is not None:
 			self._process.terminate()
 			self._process = None
+
+	def _start(self):
+		if self._process is not None:
+			self.stop()
+		self._process = Popen(
+			self._filter_args,
+			bufsize=0,
+			stdin=PIPE,
+			stdout=PIPE,
+			stderr=sys.stderr
+		)
+		self._source.pipe_to(self._process.stdin)
 
 
 class MainView(QWebEngineView):
@@ -119,6 +154,7 @@ class Picker(QtCore.QObject):
 			self,
 			center=True,
 			json_output=False,
+			source=None,
 			**options
 		):
 		super(Picker, self).__init__()
@@ -135,11 +171,19 @@ class Picker(QtCore.QObject):
 		self._view = MainView(self._menu, center=center)
 		self._view.setWindowTitle(options.get('title') or self._app_name)
 
-		self._filter = Filter(options.get('limit') or self._default_limit)
+		if source:
+			input_source = ProcessSource(source)
+		else:
+			input_source = StreamSource(sys.stdin, encoding='utf-8')
+		self._filter = Filter(
+			input_source,
+			options.get('limit') or self._default_limit
+		)
 		self._filter.moveToThread(self._app._filter_thread)
 
 		self._menu.picked.connect(self._filter.stop)
 		self._menu.picked.connect(self._picked)
+		self._menu.refreshed.connect(self._filter.refresh)
 		self._menu.requested.connect(self._filter.request)
 
 		self._started.connect(self._filter.run)

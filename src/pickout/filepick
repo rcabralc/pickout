@@ -170,13 +170,8 @@ title=${title:-"Select file${title_suffix}…"}
 while true; do
 	root="${root%/}"
 	cd "$root"
+	fdcmd="fd . --type file --follow --hidden --no-ignore ${excludes[*]}"
 	item=$(
-		fd \
-			--type file \
-			--follow \
-			--hidden \
-			--no-ignore \
-			${excludes[*]} |
 		pickout \
 			$nocenter \
 			--accept-input \
@@ -184,7 +179,8 @@ while true; do
 			--home "$home" \
 			--input "$input" \
 			--title "$title" \
-			--word-delimiters '/'
+			--word-delimiters '/' \
+			--source "$fdcmd"
 	) || exit 1
 
 	# Treat item as a file/dir with respect to root unless it starts with /

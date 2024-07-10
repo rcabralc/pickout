@@ -11,6 +11,7 @@ Usage:
             [--json-output]
             [--limit=<limit>]
             [--no-center]
+            [--source=<command>]
             [--title=<title>]
             [--word-delimiters=<delimiters>]
 
@@ -59,6 +60,13 @@ Options:
         will cause the menu to not be positioned at the center of the screen
         and, as such, window managers may decide to place the window as it fits.
 
+    --source <command>
+        Use <command> as input entries.
+
+        This is an alternative to reading entries from STDIN (the default).
+        Note that <command> is a shell command (more specifically, `/bin/sh`).
+        The command used must not return empty entries.
+
     --title <title>
         Set the window title to <title>.
 
@@ -76,8 +84,8 @@ Key bindings:
     Ctrl+Enter
         Accept the input, that is, print it to STDOUT and exit.
 
-    Esc or Ctrl+D or Ctrl+Space
-        Quit, without printing anything.
+    Esc/Ctrl+D/Ctrl+Space
+        Quit without printing anything.
 
     Tab
         Complete.
@@ -93,6 +101,9 @@ Key bindings:
 
     Ctrl+P
         Get previous history entry and use it as the input.
+
+    Ctrl+R/F5
+        Refresh entries and refilter (only useful if --source is used).
 
     Ctrl+H
         Set input to the home, if specified.
@@ -128,6 +139,7 @@ def main(args):
 		input=args['--input'],
 		json_output=args['--json-output'],
 		limit=args['--limit'],
+		source=args['--source'],
 		title=args['--title'],
 		word_delimiters=args['--word-delimiters']
 	))

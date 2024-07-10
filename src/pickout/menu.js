@@ -9,6 +9,7 @@
 			complete (text) { console.log('send input to menu for completion', text) },
 			dismiss () { console.log('tell menu to quit') },
 			filter (seq, text) { console.log('send input to menu for filtering', seq, text) },
+			refresh () { console.log('tell menu to refresh entries') },
 			request_next_from_history () { console.log('get next entry from history') },
 			request_prev_from_history () { console.log('get previous entry from history') },
 			select_next () { console.log('tell menu to select next item') },
@@ -20,9 +21,9 @@
 		const counters = buildCounters($('#prompt-box .counters')[0])
 		const entries = buildEntries($('#entries'), $('#entries-box'))
 		const input = buildInput($('#prompt-box .input')[0])
-		const menu = Object.keys(bridge).reduce((bridge, method) => {
-			bridge[method] = (...args) => global.bridge[method](...args)
-			return bridge
+		const menu = Object.keys(bridge).reduce((menu, method) => {
+			menu[method] = (...args) => global.bridge[method](...args)
+			return menu
 		}, {})
 		const progress = buildProgress($('progress'))
 		const promptBox = buildPromptBox($('#prompt-box'), $('#prompt-box .prompt'))
@@ -149,7 +150,7 @@
 
 	function buildInput (el) {
 		let delimiters = []
-		let historyData
+		let historyState
 		let isReady = false
 		let patternTypes = []
 
@@ -175,12 +176,12 @@
 			alternatePattern,
 			eraseWord,
 			get,
-			getHistoryData,
+			getHistoryState,
 			isReady () { return isReady },
 			redo,
-			resetHistoryData,
+			resetHistoryState,
 			set,
-			setHistoryData,
+			setHistoryState,
 			setup (params) {
 				delimiters = params.delimiters || []
 				if (!delimiters.includes(' ')) delimiters.push(' ')
@@ -235,7 +236,7 @@
 				: el.selectionEnd
 		}
 
-		function getHistoryData () { return historyData }
+		function getHistoryState () { return historyState }
 
 		function redo () { write(inputStack.redo()) }
 
@@ -247,8 +248,8 @@
 			el.selectionEnd = el.selectionStart
 		}
 
-		function resetHistoryData () {
-			historyData = { index: -1, value: el.value }
+		function resetHistoryState () {
+			historyState = { index: -1, value: el.value }
 		}
 
 		function set (value, { event = 'input' } = {}) {
@@ -256,8 +257,8 @@
 			inputStack.push(get(), write(value, { event }))
 		}
 
-		function setHistoryData ({ index, value }) {
-			historyData.index = index
+		function setHistoryState ({ index, value }) {
+			historyState.index = index
 			write(value)
 		}
 
@@ -326,22 +327,23 @@
 			progress.stop()
 		}
 
-		function filter ({ complete, inputEvent }) {
+		function filter ({ complete = false, inputEvent = true, refresh = false } = {}) {
 			if (!input.isReady()) return
 
 			progress.start()
 
 			if (inputEvent) {
-				input.resetHistoryData()
+				input.resetHistoryState()
 				promptBox.setInserMode()
 			}
 
 			const text = input.get()
 
-			if (complete) {
+			if (complete || refresh) {
 				clearTimeout(filterTimeout)
 				filterTimeout = null
-				menu.complete(text)
+				if (complete) menu.complete(text)
+				else menu.refresh(text)
 				return
 			}
 
@@ -357,7 +359,7 @@
 		}
 
 		function history (index, value) {
-			input.setHistoryData({ index, value })
+			input.setHistoryState({ index, value })
 			promptBox.setHistoryMode()
 		}
 
@@ -383,15 +385,17 @@
 			keyHandlers.Enter = swallow(menu.accept_selected)
 			keyHandlers.Escape = swallow(menu.dismiss)
 			keyHandlers.Tab = swallow(complete)
+			keyHandlers.F5 = swallow(refresh)
 			keyHandlers['Control-Enter'] = swallow(acceptInput)
 			keyHandlers['Control- '] = keyHandlers.Escape
 			keyHandlers['Control-d'] = keyHandlers.Escape
-			keyHandlers['Control-p'] = swallow(requestPrevFromHistory)
-			keyHandlers['Control-n'] = swallow(requestNextFromHistory)
 			keyHandlers['Control-h'] = swallow(setHome)
 			keyHandlers['Control-j'] = swallow(menu.select_next)
 			keyHandlers['Control-k'] = swallow(menu.select_prev)
 			keyHandlers['Control-m'] = swallow(filterWithSelected)
+			keyHandlers['Control-n'] = swallow(requestNextFromHistory)
+			keyHandlers['Control-p'] = swallow(requestPrevFromHistory)
+			keyHandlers['Control-r'] = keyHandlers.F5
 			keyHandlers['Control-u'] = swallow(clearInput)
 			keyHandlers['Control-w'] = swallow(input.eraseWord)
 			keyHandlers['Control-y'] = swallow(input.redo)
@@ -400,18 +404,19 @@
 
 			function acceptInput () { menu.accept_input(input.get()) }
 			function clearInput () { input.set('') }
-			function complete () { filter({ complete: true, inputEvent: true }) }
+			function complete () { filter({ complete: true }) }
 			function filterWithSelected () {
 				input.set(selection.value, { event: 'change' })
 			}
-			function handleInput () { filter({ complete: false, inputEvent: true }) }
-			function handleChange () { filter({ complete: false, inputEvent: false }) }
+			function handleInput () { filter() }
+			function handleChange () { filter({ inputEvent: false }) }
+			function refresh () { filter({ refresh: true }) }
 			function requestNextFromHistory () {
-				const { index, value } = input.getHistoryData()
+				const { index, value } = input.getHistoryState()
 				menu.request_next_from_history(index, value)
 			}
 			function requestPrevFromHistory () {
-				const { index, value } = input.getHistoryData()
+				const { index, value } = input.getHistoryState()
 				menu.request_prev_from_history(index, value)
 			}
 			function setHome () { if (home) input.set(home) }
