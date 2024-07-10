@@ -384,8 +384,8 @@
 			keyHandlers.Escape = swallow(menu.dismiss)
 			keyHandlers.Tab = swallow(complete)
 			keyHandlers['Control-Enter'] = swallow(acceptInput)
-			keyHandlers['Control- '] = swallow(keyHandlers.Escape)
-			keyHandlers['Control-d'] = swallow(keyHandlers.Escape)
+			keyHandlers['Control- '] = keyHandlers.Escape
+			keyHandlers['Control-d'] = keyHandlers.Escape
 			keyHandlers['Control-p'] = swallow(requestPrevFromHistory)
 			keyHandlers['Control-n'] = swallow(requestNextFromHistory)
 			keyHandlers['Control-h'] = swallow(setHome)
