@@ -216,7 +216,13 @@
 
 		function eraseWord () {
 			const end = getCursor() - 1
-			const start = find(get(), end, -1, delimiters)
+			const text = get()
+			let start = find(text, end, -1, delimiters)
+			// Let only one delimiter character if there's a sequece of them.
+			// For example, if delimiters are / and . (| is the cursor):
+			//     foo/bar.baz| -> foo/bar.
+			//     foo/...baz| -> foo/
+			while (start >= 2 && delimiters.includes(text[start - 2])) start--
 			replace('', start, end)
 		}
 
