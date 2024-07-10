@@ -13,25 +13,20 @@ import sys
 
 class Filter(QtCore.QObject):
 	terminated = QtCore.Signal()
-	ready = QtCore.Signal(dict)
+	ready = QtCore.Signal()
 	response = QtCore.Signal(dict)
-	_default_limit = 50
 	_enc = 'utf-8'
 	_path = os.path.join(os.path.dirname(__file__), 'filter')
 	_process = None
 
-	def __init__(self, limit=None, word_delimiters=None):
+	def __init__(self, limit):
 		super(Filter, self).__init__()
-		self._limit = limit
-		self._word_delimiters = word_delimiters
+		self._filter_args = [self._path, str(limit)]
 
 	@QtCore.Slot()
 	def run(self):
-		options = self._fix_options(word_delimiters=self._word_delimiters)
-		limit = self._limit
-		args = [self._path, str(limit or self._default_limit)]
 		self._process = Popen(
-			args,
+			self._filter_args,
 			bufsize=0,
 			stdin=PIPE,
 			stdout=PIPE,
@@ -39,9 +34,11 @@ class Filter(QtCore.QObject):
 		)
 
 		entries = iter(sys.stdin.readline, '')
-		non_empty_entries = ''.join(e for e in entries if e.rstrip())
+		non_empty_entries = ''.join(
+			e for e in entries if len(e) and not e.isspace()
+		)
 		self._process.stdin.write((non_empty_entries + '\n').encode(self._enc))
-		self.ready.emit(options)
+		self.ready.emit()
 
 	@QtCore.Slot(dict)
 	def request(self, request):
@@ -56,24 +53,6 @@ class Filter(QtCore.QObject):
 		if self._process is not None:
 			self._process.terminate()
 			self._process = None
-
-	def _fix_options(
-			self,
-			completion_sep='',
-			debug=False,
-			home=None,
-			word_delimiters=None,
-			**kw
-		):
-		logger = sys.stderr if debug else None
-
-		return dict(
-			delimiters=list(word_delimiters or ''),
-			home_input=home,
-			logger=logger,
-			sep=completion_sep,
-			**kw
-		)
 
 
 class MainView(QWebEngineView):
@@ -133,6 +112,7 @@ class MainView(QWebEngineView):
 
 
 class Picker(QtCore.QObject):
+	_default_limit = 50
 	_started = QtCore.Signal()
 
 	def __init__(
@@ -144,7 +124,7 @@ class Picker(QtCore.QObject):
 		super(Picker, self).__init__()
 		self._app_name = 'pickout'
 		self._json_output = json_output
-		self._options = options
+		self._options = self._fix_options(**options)
 
 		self._app = QtWidgets.QApplication(sys.argv)
 		self._app.setApplicationName(self._app_name)
@@ -155,10 +135,7 @@ class Picker(QtCore.QObject):
 		self._view = MainView(self._menu, center=center)
 		self._view.setWindowTitle(options.get('title') or self._app_name)
 
-		self._filter = Filter(
-			limit=options.get('limit'),
-			word_delimiters=options.get('word_delimiters')
-		)
+		self._filter = Filter(options.get('limit') or self._default_limit)
 		self._filter.moveToThread(self._app._filter_thread)
 
 		self._menu.picked.connect(self._filter.stop)
@@ -197,13 +174,29 @@ class Picker(QtCore.QObject):
 		sys.stdout.flush()
 		self.exit(0)
 
-	@QtCore.Slot(dict)
-	def _ready(self, options):
-		combined_options = dict(self._options)
-		combined_options.update(options)
-		self._menu.reset(**combined_options)
-		title = combined_options.get('title')
+	@QtCore.Slot()
+	def _ready(self):
+		self._menu.reset(**self._options)
+		title = self._options.get('title')
 		self._view.setWindowTitle(title or self._app_name)
+
+	def _fix_options(
+			self,
+			completion_sep='',
+			debug=False,
+			home=None,
+			word_delimiters=None,
+			**kw
+		):
+		logger = sys.stderr if debug else None
+
+		return dict(
+			delimiters=list(word_delimiters or ''),
+			home_input=home,
+			logger=logger,
+			sep=completion_sep,
+			**kw
+		)
 
 
 class Template:
