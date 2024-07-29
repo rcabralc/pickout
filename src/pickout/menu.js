@@ -1,5 +1,5 @@
 ;(function (global) {
-	const { jQuery: $, QWebChannel, qt } = global
+	const { QWebChannel, qt } = global
 
 	const bridge = global.bridge = (function (console) {
 		// Stub bridge implementation.  The real one is inject by Qt.
@@ -17,16 +17,21 @@
 		}
 	})(global.console)
 
-	$(function () {
-		const counters = buildCounters($('#prompt-box .counters')[0])
-		const entries = buildEntries($('#entries'), $('#entries-box'))
-		const input = buildInput($('#prompt-box .input')[0])
+	function ready (callback) {
+		if (document.readyState !== 'loading') callback()
+		else document.addEventListener('DOMContentLoaded', callback)
+	}
+
+	ready(function () {
+		const counters = buildCounters(document.querySelector('#prompt-box .counters'))
+		const entries = buildEntries(document.getElementById('entries'), document.getElementById('entries-box'))
+		const input = buildInput(document.querySelector('#prompt-box .input'))
 		const menu = Object.keys(bridge).reduce((menu, method) => {
 			menu[method] = (...args) => global.bridge[method](...args)
 			return menu
 		}, {})
-		const progress = buildProgress($('progress'))
-		const promptBox = buildPromptBox($('#prompt-box'), $('#prompt-box .prompt'))
+		const progress = buildProgress(document.getElementsByTagName('progress')[0])
+		const promptBox = buildPromptBox(document.getElementById('prompt-box'))
 		const widget = buildWidget({ counters, entries, input, menu, progress, promptBox })
 
 		new QWebChannel(qt.webChannelTransport, function (channel) {
@@ -50,23 +55,23 @@
 		}
 	}
 
-	function buildEntries ($el, $box) {
-		const box = $box[0]
+	function buildEntries (el, box) {
 		window.addEventListener('resize', adjustScroll)
-		$el.on('scroll', adjustScroll)
-		adjustScroll()
+		el.addEventListener('scroll', adjustScroll)
 
 		return { select, update }
 
 		function adjustScroll() {
 			const visibleHeight = window.innerHeight - box.getBoundingClientRect().top
-			const scroll = $el.scrollTop()
-			const totalHeight = $el.find('> table').outerHeight()
+			const table = el.getElementsByTagName('table')[0]
+			if (!table) return
+
+			const totalHeight = table.offsetHeight
 			const totalHeightPx = `${totalHeight}px`
 
 			box.style.setProperty('--visible-height', visibleHeight)
 			box.style.setProperty('--total-height', totalHeight)
-			box.style.setProperty('--scroll', scroll)
+			box.style.setProperty('--scroll', el.scrollTop)
 
 			if (totalHeight > visibleHeight) {
 				box.style.setProperty('--sb-display', 'block')
@@ -75,73 +80,85 @@
 			}
 		}
 
-		function ensureVisible($item) {
-			const top = $item.offset().top - $el.offset().top
-			const eh = $box.height()
-			const bottom = top + $item.outerHeight() - eh
-			const current = $el.scrollTop()
-			$el.scrollTop(current + (bottom >= 0 ? bottom : (top < 0 ? top : 0)))
+		function ensureVisible (item) {
+			const top = item.getBoundingClientRect().top - el.getBoundingClientRect().top
+			const bottom = top + item.offsetHeight - box.clientHeight
+			el.scrollTop += bottom >= 0 ? bottom : (top < 0 ? top : 0)
 		}
 
 		function select (index) {
-			$el.find('tr.selected').removeClass('selected')
-			ensureVisible(
-				$el.find('tr:nth-child(' + (index + 1) + ')').addClass('selected')
-			)
+			const newSelected = el.querySelector(`tr:nth-child(${index + 1})`)
+			const oldSelected = el.querySelector(`tr.selected`)
+			if (newSelected === oldSelected) return
+
+			if (oldSelected) oldSelected.classList.remove('selected')
+			if (!newSelected) return
+
+			newSelected.classList.add('selected')
+			ensureVisible(newSelected)
 		}
 
 		function set (items) {
 			const entries = items.map(item => {
-				const $tr = $(document.createElement('tr'))
+				const tr = document.createElement('tr')
 				const cells = []
 
 				if (item.data.icon) {
-					cells.push($(`<td class="icon"></td>`).append(
-						$(document.createElement('img')).attr('src', item.data.icon)
-					))
+    				const img = document.createElement('img')
+					img.setAttribute('src', item.data.icon)
+					const cell = document.createElement('td')
+					cell.classList.add('icon')
+					cell.append(img)
+					cells.push(cell)
 				}
 
 				if (item.data.subtext) {
-					const $cell = $(document.createElement('td'))
-					const $title = $(document.createElement('p'))
+					const cell = document.createElement('td')
+					const title = document.createElement('p')
 
 					item.partitions.forEach(({ unmatched, matched }) => {
-						$title.append(document.createTextNode(unmatched))
-						$title.append($(`<span class="match"></span>`).text(matched))
+						title.append(unmatched)
+						const span = document.createElement('span')
+						span.classList.add('match')
+						span.append(matched)
+						title.append(span)
 					})
 
-					$cell.append($title)
-					$cell.append($(`<p class="subtext"></p>`).text(item.data.subtext))
+					cell.append(title)
 
-					cells.push($cell)
+					const subtext = document.createElement('p')
+					subtext.classList.add('subtext')
+					subtext.append(item.data.subtext)
+					cell.append(subtext)
+
+					cells.push(cell)
 				} else {
-					cells.push($(document.createElement('td')))
+					cells.push(document.createElement('td'))
 					item.partitions.forEach(({ unmatched, matched }) => {
 						unmatched.split('\t').forEach((text, i) => {
-							if (i) {
-								cells.push($(document.createElement('td')))
-							}
-							cells[cells.length - 1].append(document.createTextNode(text))
+							if (i) cells.push(document.createElement('td'))
+							cells[cells.length - 1].append(text)
 						})
 						matched.split('\t').forEach((text, i) => {
-							if (i) {
-								cells.push($(document.createElement('td')))
-							}
-							cells[cells.length - 1].append($(`<span class="match"></span>`).text(text))
+							if (i) cells.push(document.createElement('td'))
+							const span = document.createElement('span')
+							span.classList.add('match')
+							span.append(text)
+							cells[cells.length - 1].append(span)
 						})
 					})
 				}
 
-				cells[cells.length - 1].attr('rolspan', Math.max(1, 11 - cells.length))
-				if (item.selected) $tr.addClass('selected')
+				cells[cells.length - 1].setAttribute('rolspan', Math.max(1, 11 - cells.length))
+				if (item.selected) tr.classList.add('selected')
 
-				$tr.append(cells)
-				return $tr
+				tr.append(...cells)
+				return tr
 			})
 
-			const $table = $(document.createElement('table'))
-			$table.append(entries)
-			$el.html($table)
+			const table = document.createElement('table')
+			table.append(...entries)
+			el.replaceChildren(table)
 			adjustScroll()
 		}
 
@@ -154,8 +171,8 @@
 		let isReady = false
 		let patternTypes = []
 
-		$(window).on('focus', focus)
-		$(window).on('click', focus)
+		window.addEventListener('focus', focus)
+		window.addEventListener('click', focus)
 		el.focus()
 
 		const inputStack = (function () {
@@ -287,32 +304,35 @@
 		}
 	}
 
-	function buildProgress ($progress) {
+	function buildProgress (progress) {
 		return {
-			start () { $progress.addClass('in-progress') },
-			stop () { $progress.removeClass('in-progress') }
+			start () { progress.classList.add('in-progress') },
+			stop () { progress.classList.remove('in-progress') }
 		}
 	}
 
-	function buildPromptBox ($box, $prompt) {
+	function buildPromptBox (box) {
+		const prompt = box.getElementsByClassName('prompt')[0]
 		return {
 			setHistoryMode () {
-				$prompt.removeClass('insert-mode').addClass('history-mode').text('◂')
+				prompt.classList.replace('insert-mode', 'history-mode')
+				prompt.replaceChildren('◂')
 			},
 			setInserMode () {
-				$prompt.removeClass('history-mode').addClass('insert-mode').text('▸')
+				prompt.classList.replace('history-mode', 'insert-mode')
+				prompt.replaceChildren('▸')
 			},
 			update (filtered, _total, items) {
 				if (items.length) {
-					$box.removeClass('not-found')
+					box.classList.remove('not-found')
 				} else {
-					$box.addClass('not-found')
+					box.classList.add('not-found')
 				}
 
 				if (filtered > items.length) {
-					$box.addClass('over-limit')
+					box.classList.add('over-limit')
 				} else {
-					$box.removeClass('over-limit')
+					box.classList.remove('over-limit')
 				}
 			}
 		}

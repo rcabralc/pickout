@@ -99,9 +99,6 @@ class MainView(QWebEngineView):
 		with open(os.path.join(self._basedir, 'menu.html')) as f:
 			template = Template(f.read())
 
-		with open(os.path.join(self._basedir, 'jquery.js')) as f:
-			jquery_source = f.read()
-
 		with open(os.path.join(self._basedir, 'menu.js')) as f:
 			frontend_source = f.read()
 
@@ -111,7 +108,7 @@ class MainView(QWebEngineView):
 
 		def on_load_finished(*_a, **kw):
 			channel.registerObject('bridge', menu)
-			page.runJavaScript(jquery_source + frontend_source)
+			page.runJavaScript(frontend_source)
 
 		self._theme = Theme(self.palette())
 		page = self.page()
