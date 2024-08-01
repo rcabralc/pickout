@@ -129,11 +129,13 @@ import sys
 
 
 def main(args):
-	return sys.exit(run(
+	logger = streamlogger(sys.stderr if args['--debug'] else None)
+
+	return run(
+		logger=logger,
 		accept_input=args['--accept-input'],
 		center=not args['--no-center'],
 		completion_sep=args['--completion-sep'],
-		debug=args['--debug'],
 		history_key=args['--history-key'],
 		home=args['--home'],
 		input=args['--input'],
@@ -142,7 +144,17 @@ def main(args):
 		source=args['--source'],
 		title=args['--title'],
 		word_delimiters=args['--word-delimiters']
-	))
+	)
+
+
+class streamlogger:
+	def __init__(self, stream):
+		self._stream = stream
+
+	def print(self, message):
+		if self._stream is not None:
+			self._stream.write(message + '\n')
+			self._stream.flush()
 
 
 if __name__ == '__main__':

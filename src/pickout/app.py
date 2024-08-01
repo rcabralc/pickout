@@ -37,8 +37,6 @@ class ProcessSource:
 
 
 class Filter(QtCore.QObject):
-	terminated = QtCore.Signal()
-	ready = QtCore.Signal()
 	response = QtCore.Signal(dict)
 	_enc = 'utf-8'
 	_path = os.path.join(os.path.dirname(__file__), 'filter')
@@ -46,55 +44,48 @@ class Filter(QtCore.QObject):
 
 	def __init__(self, source, limit):
 		super(Filter, self).__init__()
-		self._filter_args = [self._path, str(limit)]
 		self._source = source
+		self._limit = limit
 
-	@QtCore.Slot()
-	def run(self):
-		self._start()
-		self.ready.emit()
-
-	@QtCore.Slot(dict)
 	def refresh(self, request):
 		if not self._source.consumed:
-			self._start()
+			self.start()
 		payload = json.dumps(request) + '\n'
-		self._process.stdin.write(payload.encode(self._enc))
-		line = self._process.stdout.readline().decode(self._enc)
-		self.response.emit(json.loads(line))
+		self._process.write(payload.encode(self._enc))
 
-	@QtCore.Slot(dict)
 	def request(self, request):
 		if self._process:
 			payload = json.dumps(request) + '\n'
-			self._process.stdin.write(payload.encode(self._enc))
-			line = self._process.stdout.readline().decode(self._enc)
-			self.response.emit(json.loads(line))
+			self._process.write(payload.encode(self._enc))
 
-	@QtCore.Slot()
+	def start(self):
+		if self._process is not None:
+			self.stop()
+		self._process = QtCore.QProcess()
+		self._process.readyReadStandardOutput.connect(self._handle_out)
+		self._process.start(self._path, [str(self._limit)])
+		self._process.waitForStarted()
+		self._source.pipe_to(self._process)
+		self._process.waitForBytesWritten()
+
 	def stop(self):
 		if self._process is not None:
 			self._process.terminate()
+			self._process.waitForFinished()
 			self._process = None
 
-	def _start(self):
-		if self._process is not None:
-			self.stop()
-		self._process = Popen(
-			self._filter_args,
-			bufsize=0,
-			stdin=PIPE,
-			stdout=PIPE,
-			stderr=sys.stderr
-		)
-		self._source.pipe_to(self._process.stdin)
+	def _handle_out(self):
+		data = bytes(self._process.readAllStandardOutput()).decode(self._enc)
+		self.response.emit(json.loads(data))
 
 
 class MainView(QWebEngineView):
 	_basedir = os.path.dirname(__file__)
 
-	def __init__(self, menu, center=None):
+	def __init__(self, menu, logger, title, center=None):
 		super(MainView, self).__init__()
+		self.setWindowTitle(title)
+		self._logger = logger
 
 		with open(os.path.join(self._basedir, 'menu.html')) as f:
 			template = Template(f.read())
@@ -104,19 +95,17 @@ class MainView(QWebEngineView):
 
 		self._center = center
 		self._menu = menu
-		channel = QWebChannel()
-
-		def on_load_finished(*_a, **kw):
-			channel.registerObject('bridge', menu)
-			page.runJavaScript(frontend_source)
-
 		self._theme = Theme(self.palette())
+		self._channel = QWebChannel()
+
 		page = self.page()
 		page.setHtml(template.html(self._theme))
-		page.setWebChannel(channel)
 		page.setBackgroundColor(self._theme.background_color)
+		page.setWebChannel(self._channel)
+		self._channel.registerObject('bridge', menu)
 
-		self.loadFinished.connect(on_load_finished)
+		self.loadFinished.connect(lambda: page.runJavaScript(frontend_source))
+
 		self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
 		settings = page.settings()
 		settings.setFontFamily(
@@ -124,9 +113,7 @@ class MainView(QWebEngineView):
 			QtWidgets.QApplication.font().family()
 		)
 
-	def restore(self):
-		self.activateWindow()
-		self.showNormal()
+		self.show()
 		if self._center:
 			frameGeometry = self.frameGeometry()
 			screen = QtWidgets.QApplication.primaryScreen()
@@ -142,63 +129,52 @@ class MainView(QWebEngineView):
 			page.setBackgroundColor(theme.background_color)
 		return super(MainView, self).changeEvent(event)
 
+	def closeEvent(self, event):
+		self._menu.picked.emit([])
+		return super(MainView, self).closeEvent(event)
+
 
 class Picker(QtCore.QObject):
 	_default_limit = 50
-	_started = QtCore.Signal()
+	_app_name = 'pickout'
 
 	def __init__(
 			self,
+			logger,
+			limit=None,
 			center=True,
 			json_output=False,
 			source=None,
+			title=None,
 			**options
 		):
 		super(Picker, self).__init__()
-		self._app_name = 'pickout'
 		self._json_output = json_output
 		self._options = self._fix_options(**options)
+		self._logger = logger
 
 		self._app = QtWidgets.QApplication(sys.argv)
 		self._app.setApplicationName(self._app_name)
 		self._app.setDesktopFileName(f'{self._app_name}.desktop')
-		self._app._filter_thread = QtCore.QThread()
 
-		self._menu = Menu(self._app)
-		self._view = MainView(self._menu, center=center)
-		self._view.setWindowTitle(options.get('title') or self._app_name)
-
-		if source:
-			input_source = ProcessSource(source)
+		if source is None:
+			source = StreamSource(sys.stdin, encoding='utf-8')
 		else:
-			input_source = StreamSource(sys.stdin, encoding='utf-8')
-		self._filter = Filter(
-			input_source,
-			options.get('limit') or self._default_limit
-		)
-		self._filter.moveToThread(self._app._filter_thread)
-
-		self._menu.picked.connect(self._filter.stop)
+			source = ProcessSource(source)
+		self._filter = Filter(source, limit or self._default_limit)
+		self._menu = Menu(self, self._filter, logger, **self._options)
 		self._menu.picked.connect(self._picked)
-		self._menu.refreshed.connect(self._filter.refresh)
-		self._menu.requested.connect(self._filter.request)
 
-		self._started.connect(self._filter.run)
+		title = title or self._app_name
+		self._view = MainView(self._menu, self._logger, title, center)
 
-		self._filter.terminated.connect(lambda: self.exit(1))
-		self._filter.ready.connect(self._ready)
-		self._filter.response.connect(self._menu.update_list)
-
-		self._app._filter_thread.start()
+		self._filter.start()
 
 	def exec(self):
-		self._started.emit()
-		self._view.restore()
 		return self._app.exec()
 
 	def exit(self, code):
 		self._filter.stop()
-		self._app._filter_thread.quit()
 		self._app.exit(code)
 
 	def _picked(self, selection):
@@ -215,26 +191,16 @@ class Picker(QtCore.QObject):
 		sys.stdout.flush()
 		self.exit(0)
 
-	@QtCore.Slot()
-	def _ready(self):
-		self._menu.reset(**self._options)
-		title = self._options.get('title')
-		self._view.setWindowTitle(title or self._app_name)
-
 	def _fix_options(
 			self,
 			completion_sep='',
-			debug=False,
 			home=None,
 			word_delimiters=None,
 			**kw
 		):
-		logger = sys.stderr if debug else None
-
 		return dict(
 			delimiters=list(word_delimiters or ''),
 			home_input=home,
-			logger=logger,
 			sep=completion_sep,
 			**kw
 		)

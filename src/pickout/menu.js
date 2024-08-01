@@ -34,10 +34,9 @@
 		const promptBox = buildPromptBox(document.getElementById('prompt-box'))
 		const widget = buildWidget({ counters, entries, input, menu, progress, promptBox })
 
-		new QWebChannel(qt.webChannelTransport, function (channel) {
+		new QWebChannel(qt.webChannelTransport, async function (channel) {
 			const bridge = global.bridge = channel.objects.bridge
 
-			bridge.setup.connect(widget.setup)
 			bridge.selected.connect(widget.select)
 			bridge.filtered.connect(widget.update)
 			bridge.history.connect(widget.history)
@@ -45,7 +44,7 @@
 			bridge.picked.connect(widget.picked)
 			bridge.themed.connect(widget.themed)
 
-			bridge.js_ready()
+			widget.setup(await bridge.js_ready())
 		})
 	})
 

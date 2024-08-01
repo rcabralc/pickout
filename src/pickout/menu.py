@@ -78,46 +78,47 @@ class Menu(QtCore.QObject):
 	filtered = QtCore.Signal(int, int, int, list)
 	history = QtCore.Signal(int, str)
 	picked = QtCore.Signal(list)
-	refreshed = QtCore.Signal(dict)
-	requested = QtCore.Signal(dict)
 	selected = QtCore.Signal(int, str)
-	setup = QtCore.Signal(str)
 	themed = QtCore.Signal(list)
 
-	_is_ready = False
-	_ready = QtCore.Signal()
 	_results = []
 	__index = 0
 
-	@QtCore.Slot()
-	def js_ready(self):
-		self._is_ready = True
-		self._ready.emit()
-
-	def reset(
+	def __init__(
 			self,
-			logger=None,
+			parent,
+			filter,
+			logger,
 			sep=None,
 			history_key=None,
 			accept_input=False,
+			delimiters=[],
+			home_input='',
+			input='',
 			**kw
 		):
+		super(Menu, self).__init__(parent)
+		self._logger = logger
 		self._history = History.build(history_key)
 		self._completion_sep = sep
 		self._accept_input = accept_input
-		self._logger = logger or nulllogger()
+		self._delimiters = delimiters
+		self._home_input = home_input
+		self._input = input
+		self._filter = filter
+		self._filter.response.connect(self._update_list)
 
-		def setup_single_shot():
-			self._setup_js(**kw)
-			self._ready.disconnect(setup_single_shot)
-
-		if self._is_ready:
-			self._setup_js(**kw)
-		else:
-			self._ready.connect(setup_single_shot)
+	@QtCore.Slot(result=str)
+	def js_ready(self):
+		return json.dumps(dict(
+			delimiters=self._delimiters,
+			home_input=self._home_input,
+			input=self._input,
+			pattern_types=PATTERN_TYPES,
+		))
 
 	@QtCore.Slot(dict)
-	def update_list(self, response):
+	def _update_list(self, response):
 		if response['command'] == 'filter':
 			self._results = response['items']
 			self._index = 0
@@ -139,8 +140,7 @@ class Menu(QtCore.QObject):
 
 	@QtCore.Slot(int, str)
 	def filter(self, seq, input):
-		self._logger.write(f'filtering {seq} {input}\n')
-		self.requested.emit(dict(
+		self._filter.request(dict(
 			command='filter',
 			seq=seq,
 			input=input,
@@ -148,7 +148,7 @@ class Menu(QtCore.QObject):
 
 	@QtCore.Slot(str)
 	def complete(self, input):
-		self.requested.emit(dict(
+		self._filter.request(dict(
 			command='complete',
 			seq=0,
 			input=input,
@@ -156,7 +156,7 @@ class Menu(QtCore.QObject):
 
 	@QtCore.Slot(str)
 	def refresh(self, input):
-		self.refreshed.emit(dict(
+		self._filter.refresh(dict(
 			command='filter',
 			seq=0,
 			input=input,
@@ -209,14 +209,6 @@ class Menu(QtCore.QObject):
 	def _index(self, value):
 		self.__index = max(0, min(value, len(self._results) - 1))
 
-	def _setup_js(self, delimiters=[], home_input='', input='', **_kw):
-		self.setup.emit(json.dumps(dict(
-			delimiters=delimiters,
-			home_input=home_input,
-			input=input,
-			pattern_types=PATTERN_TYPES,
-		)))
-
 	def _emit_selection(self):
 		if self._results:
 			value = self._results[self._index]['value']
@@ -227,11 +219,3 @@ class NullHistory:
 	def prev(self, index, input): return
 	def next(self, index, input): return
 	def add(self, _): return
-
-
-class nulllogger:
-	def write(self, *args):
-		pass
-
-	def close(self):
-		pass
