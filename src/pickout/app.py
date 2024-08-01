@@ -195,11 +195,13 @@ class Picker(QtCore.QObject):
 			self,
 			completion_sep='',
 			home=None,
+			big_word_delimiters=None,
 			word_delimiters=None,
 			**kw
 		):
 		return dict(
-			delimiters=list(word_delimiters or ''),
+			delimiters=list(set((word_delimiters or '') + (big_word_delimiters or ''))),
+			big_delimiters=list(big_word_delimiters or ''),
 			home_input=home,
 			sep=completion_sep,
 			**kw

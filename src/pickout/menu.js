@@ -9,11 +9,12 @@
 			complete (text) { console.log('send input to menu for completion', text) },
 			dismiss () { console.log('tell menu to quit') },
 			filter (seq, text) { console.log('send input to menu for filtering', seq, text) },
+			log (message) { console.log('send messsage to logger', message) },
 			refresh () { console.log('tell menu to refresh entries') },
 			request_next_from_history () { console.log('get next entry from history') },
 			request_prev_from_history () { console.log('get previous entry from history') },
 			select_next () { console.log('tell menu to select next item') },
-			select_prev () { console.log('tell menu to select previous item') }
+			select_prev () { console.log('tell menu to select previous item') },
 		}
 	})(global.console)
 
@@ -165,6 +166,7 @@
 	}
 
 	function buildInput (el) {
+		let bigDelimiters = []
 		let delimiters = []
 		let historyState
 		let isReady = false
@@ -190,6 +192,7 @@
 
 		return {
 			alternatePattern,
+			eraseBigWord,
 			eraseWord,
 			get,
 			getHistoryState,
@@ -199,7 +202,9 @@
 			set,
 			setHistoryState,
 			setup (params) {
+				bigDelimiters = params.big_delimiters || []
 				delimiters = params.delimiters || []
+				if (!bigDelimiters.includes(' ')) bigDelimiters.push(' ')
 				if (!delimiters.includes(' ')) delimiters.push(' ')
 				patternTypes = params.pattern_types || []
 				el.value = (params.input || '') + el.value
@@ -230,22 +235,50 @@
 			replace(nextPattern + word.slice(currPattern.length), start, end)
 		}
 
+		function eraseBigWord () {
+			eraseDelimitedWord(bigDelimiters, false)
+		}
+
 		function eraseWord () {
+			eraseDelimitedWord(delimiters, true)
+		}
+
+		function eraseDelimitedWord (delimiters, includeCaps) {
 			const end = getCursor() - 1
 			const text = get()
-			let start = find(text, end, -1, delimiters)
-			// Let only one delimiter character if there's a sequece of them.
-			// For example, if delimiters are / and . (| is the cursor):
-			//     foo/bar.baz| -> foo/bar.
-			//     foo/...baz| -> foo/
-			while (start >= 2 && delimiters.includes(text[start - 2])) start--
+			const start = find(text, end, -1, (next, index, step) => {
+				if (includeCaps) {
+					const curr = text[index]
+					if (
+						/\p{Lu}/u.test(curr) &&  // curr is uppercase letter
+						!/\p{Lu}/u.test(next)    // next is not
+					) return true
+				}
+
+				// Let only one delimiter character if
+				// there's a sequece of them.
+				// For example, if delimiters are / and . (| is the cursor):
+				//     foo/bar.baz| -> foo/bar.
+				//     foo/...baz| -> foo/
+
+				const isDelimited = delimiters.includes(next)
+				if (!isDelimited) return false
+				if (index + step <= 0) return true
+
+				const nextNext = text[index + 2 * step]
+				return !delimiters.includes(nextNext)
+			})
 			replace('', start, end)
 		}
 
-		function find (value, index, step, delimiters) {
+		function findDelimited (value, index, step, delimiters) {
+			return find(value, index, step, next => delimiters.includes(next))
+		}
+
+		function find (value, index, step, test) {
 			while (
 				index + step >= 0 && index + step < value.length &&
-				!delimiters.includes(value[index + step])
+				!test(value[index + step], index, step)
 			) index = index + step
 			return index
 		}
@@ -290,8 +323,8 @@
 
 		function wordUnderCursor (delimiters) {
 			const value = get()
-			const start = find(value, getCursor(), -1, delimiters)
-			const end = find(value, start, 1, delimiters)
+			const start = findDelimited(value, getCursor(), -1, delimiters)
+			const end = findDelimited(value, start, 1, delimiters)
 			return { start: start, end: end, word: value.slice(start, end + 1) }
 		}
 
@@ -425,6 +458,7 @@
 			keyHandlers['Control-r'] = keyHandlers.F5
 			keyHandlers['Control-u'] = swallow(clearInput)
 			keyHandlers['Control-w'] = swallow(input.eraseWord)
+			keyHandlers['Control-Backspace'] = swallow(input.eraseBigWord)
 			keyHandlers['Control-y'] = swallow(input.redo)
 			keyHandlers['Control-z'] = swallow(input.undo)
 			keyHandlers['Alt-p'] = swallow(input.alternatePattern)

@@ -3,6 +3,7 @@
 
 Usage:
     pickout [--accept-input]
+            [--big-word-delimiters=<delimiters>]
             [--completion-sep=<sep>]
             [--debug]
             [--history-key=<key>]
@@ -19,6 +20,12 @@ Options:
     --accept-input
         Allow any text typed in the search input to be accepted through
         Ctrl-Enter.
+
+    --big-word-delimiters <delimiters>
+        Delimiters used for "big" words. Any delimiter here is also considered a
+        normal word delimiter. See --word-delimiters and Key Bindings section.
+
+        Whitespace is always considered a big word delimiter.
 
     --completion-sep <sep>
         Separator used for completion.  Without this, completion works by
@@ -71,7 +78,10 @@ Options:
         Set the window title to <title>.
 
     --word-delimiters <delimiters>
-        Delimiters used for words.
+        Delimiters used for words in addition to those specified
+        with --big-word-delimiters. See also Key Bindings section.
+
+        Capital letters and whitespace are always considered word delimiters.
 
     -h, --help
         Show this.
@@ -114,6 +124,10 @@ Key bindings:
     Ctrl+W
         Erase previous word in input box according to word delimiters given.
 
+    Ctrl+Backspace
+        Erase previous "big" word in input box according to big word
+        delimiters given.
+
     Ctrl+U
         Erase the input box.
 
@@ -134,6 +148,7 @@ def main(args):
 	return run(
 		logger=logger,
 		accept_input=args['--accept-input'],
+		big_word_delimiters=args['--big-word-delimiters'],
 		center=not args['--no-center'],
 		completion_sep=args['--completion-sep'],
 		history_key=args['--history-key'],

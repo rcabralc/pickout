@@ -92,6 +92,7 @@ class Menu(QtCore.QObject):
 			sep=None,
 			history_key=None,
 			accept_input=False,
+			big_delimiters=[],
 			delimiters=[],
 			home_input='',
 			input='',
@@ -102,6 +103,7 @@ class Menu(QtCore.QObject):
 		self._history = History.build(history_key)
 		self._completion_sep = sep
 		self._accept_input = accept_input
+		self._big_delimiters = big_delimiters
 		self._delimiters = delimiters
 		self._home_input = home_input
 		self._input = input
@@ -111,6 +113,7 @@ class Menu(QtCore.QObject):
 	@QtCore.Slot(result=str)
 	def js_ready(self):
 		return json.dumps(dict(
+			big_delimiters=self._big_delimiters,
 			delimiters=self._delimiters,
 			home_input=self._home_input,
 			input=self._input,
@@ -200,6 +203,10 @@ class Menu(QtCore.QObject):
 	@QtCore.Slot()
 	def dismiss(self):
 		self.picked.emit([])
+
+	@QtCore.Slot(str)
+	def log(self, message):
+		self._logger.print(message)
 
 	@property
 	def _index(self):

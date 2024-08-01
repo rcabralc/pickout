@@ -179,7 +179,8 @@ while true; do
 			--home "$home" \
 			--input "$input" \
 			--title "$title" \
-			--word-delimiters '/._-' \
+			--word-delimiters '._-' \
+			--big-word-delimiters '/.' \
 			--source "$fdcmd"
 	) || exit 1
 
