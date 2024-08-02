@@ -184,6 +184,7 @@
 
 			function push (oldValue, newValue) {
 				inputs.splice(pos++, inputs.length, oldValue, newValue)
+				return newValue
 			}
 
 			function redo () { return pos < inputs.length - 1 ? inputs[++pos] : null }
@@ -199,6 +200,7 @@
 			isReady () { return isReady },
 			redo,
 			resetHistoryState,
+			scrollAllLeft () { el.scrollLeft = el.scrollWidth },
 			set,
 			setHistoryState,
 			setup (params) {
@@ -232,15 +234,15 @@
 				: patternTypes[0]
 			const currPattern = found && patternTypes[i - 1] || ''
 
-			replace(nextPattern + word.slice(currPattern.length), start, end)
+			return replace(nextPattern + word.slice(currPattern.length), start, end)
 		}
 
 		function eraseBigWord () {
-			eraseDelimitedWord(bigDelimiters, false)
+			return eraseDelimitedWord(bigDelimiters, false)
 		}
 
 		function eraseWord () {
-			eraseDelimitedWord(delimiters, true)
+			return eraseDelimitedWord(delimiters, true)
 		}
 
 		function eraseDelimitedWord (delimiters, includeCaps) {
@@ -268,7 +270,7 @@
 				const nextNext = text[index + 2 * step]
 				return !delimiters.includes(nextNext)
 			})
-			replace('', start, end)
+			return replace('', start, end)
 		}
 
 		function findDelimited (value, index, step, delimiters) {
@@ -295,31 +297,31 @@
 
 		function getHistoryState () { return historyState }
 
-		function redo () { write(inputStack.redo()) }
+		function redo () { return write(inputStack.redo()) }
 
 		function replace (str, start, end) {
 			const value = get()
 			const newValue = value.slice(0, start) + str + value.slice(end + 1)
 			set(newValue)
-			el.selectionStart = start + str.length
-			el.selectionEnd = el.selectionStart
+			el.selectionStart = el.selectionEnd = start + str.length
+			return newValue
 		}
 
 		function resetHistoryState () {
 			historyState = { index: -1, value: el.value }
 		}
 
-		function set (value, { event = 'input' } = {}) {
+		function set (value) {
 			if (value == null) return
-			inputStack.push(get(), write(value, { event }))
+			return inputStack.push(get(), write(value))
 		}
 
 		function setHistoryState ({ index, value }) {
 			historyState.index = index
-			write(value)
+			return write(value)
 		}
 
-		function undo () { write(inputStack.undo()) }
+		function undo () { return write(inputStack.undo()) }
 
 		function wordUnderCursor (delimiters) {
 			const value = get()
@@ -328,10 +330,8 @@
 			return { start: start, end: end, word: value.slice(start, end + 1) }
 		}
 
-		function write (value, { event = 'change' } = {}) {
+		function write (value) {
 			if (value != null) el.value = value
-			el.focus()
-			el.dispatchEvent(new Event(event, { bubbles: true }))
 			return value
 		}
 	}
@@ -383,11 +383,11 @@
 		return { completed, history, picked, setup, select, themed, update }
 
 		function completed (text) {
-			input.set(text)
+			filter(input.set(text))
 			progress.stop()
 		}
 
-		function filter ({ complete = false, inputEvent = true, refresh = false } = {}) {
+		function filter (text, { complete = false, inputEvent = true, refresh = false } = {}) {
 			if (!input.isReady()) return
 
 			progress.start()
@@ -396,8 +396,6 @@
 				input.resetHistoryState()
 				promptBox.setInserMode()
 			}
-
-			const text = input.get()
 
 			if (complete || refresh) {
 				clearTimeout(filterTimeout)
@@ -419,8 +417,8 @@
 		}
 
 		function history (index, value) {
-			input.setHistoryState({ index, value })
 			promptBox.setHistoryMode()
+			filter(input.setHistoryState({ index, value }), { inputEvent: false })
 		}
 
 		function picked () {
@@ -444,43 +442,33 @@
 
 			keyHandlers.Enter = swallow(menu.accept_selected)
 			keyHandlers.Escape = swallow(menu.dismiss)
-			keyHandlers.Tab = swallow(complete)
-			keyHandlers.F5 = swallow(refresh)
-			keyHandlers['Control-Enter'] = swallow(acceptInput)
+			keyHandlers.Tab = swallow(() => filter(input.get(), { complete: true }))
+			keyHandlers.F5 = swallow(() => filter(input.get(), { refresh: true }))
+			keyHandlers['Control-Enter'] = swallow(() => menu.accept_input(input.get()))
 			keyHandlers['Control- '] = keyHandlers.Escape
 			keyHandlers['Control-d'] = keyHandlers.Escape
-			keyHandlers['Control-h'] = swallow(setHome)
+			keyHandlers['Control-h'] = swallow(() => home && filter(input.set(home)))
 			keyHandlers['Control-j'] = swallow(menu.select_next)
 			keyHandlers['Control-k'] = swallow(menu.select_prev)
-			keyHandlers['Control-m'] = swallow(filterWithSelected)
-			keyHandlers['Control-n'] = swallow(requestNextFromHistory)
-			keyHandlers['Control-p'] = swallow(requestPrevFromHistory)
-			keyHandlers['Control-r'] = keyHandlers.F5
-			keyHandlers['Control-u'] = swallow(clearInput)
-			keyHandlers['Control-w'] = swallow(input.eraseWord)
-			keyHandlers['Control-Backspace'] = swallow(input.eraseBigWord)
-			keyHandlers['Control-y'] = swallow(input.redo)
-			keyHandlers['Control-z'] = swallow(input.undo)
-			keyHandlers['Alt-p'] = swallow(input.alternatePattern)
-
-			function acceptInput () { menu.accept_input(input.get()) }
-			function clearInput () { input.set('') }
-			function complete () { filter({ complete: true }) }
-			function filterWithSelected () {
-				input.set(selection.value, { event: 'change' })
-			}
-			function handleInput () { filter() }
-			function handleChange () { filter({ inputEvent: false }) }
-			function refresh () { filter({ refresh: true }) }
-			function requestNextFromHistory () {
+			keyHandlers['Control-m'] = swallow(() => {
+				filter(input.set(selection.value), { inputEvent: false })
+				input.scrollAllLeft()
+			})
+			keyHandlers['Control-n'] = swallow(() => {
 				const { index, value } = input.getHistoryState()
 				menu.request_next_from_history(index, value)
-			}
-			function requestPrevFromHistory () {
+			})
+			keyHandlers['Control-p'] = swallow(() => {
 				const { index, value } = input.getHistoryState()
 				menu.request_prev_from_history(index, value)
-			}
-			function setHome () { if (home) input.set(home) }
+			})
+			keyHandlers['Control-r'] = keyHandlers.F5
+			keyHandlers['Control-u'] = swallow(() => filter(input.set('')))
+			keyHandlers['Control-w'] = swallow(() => filter(input.eraseWord()))
+			keyHandlers['Control-Backspace'] = swallow(() => filter(input.eraseBigWord()))
+			keyHandlers['Control-y'] = swallow(() => filter(input.redo(), { inputEvent: false }))
+			keyHandlers['Control-z'] = swallow(() => filter(input.undo(), { inputEvent: false }))
+			keyHandlers['Alt-p'] = swallow(() => filter(input.alternatePattern()))
 
 			function swallow(callback) {
 				return function (event) {
@@ -502,12 +490,11 @@
 				return mod + event.key
 			}
 
-			document.addEventListener('keydown', function (event) {
-				return (keyHandlers[key(event)] || (() => {}))(event)
-			})
-			document.addEventListener('input', handleInput)
-			document.addEventListener('change', handleChange)
-			document.addEventListener('blur', function (event) {
+			document.addEventListener('keydown', event =>
+				(keyHandlers[key(event)] || (() => {}))(event)
+			)
+			document.addEventListener('input', () => filter(input.get()))
+			document.addEventListener('blur', event => {
 				event.preventDefault()
 				event.stopPropagation()
 				return false
