@@ -59,12 +59,14 @@ while [ "$#" -gt 0 ]; do
 			echo "	                 program used to open directories (default: xdg-open)."
 			echo "	--exclude=<pattern>"
 			echo "	                 fd(1) option: --exclude (multiple can be given)."
+			echo "	--geometry=<geometry>"
+			echo "                   pickout option --qwindowgeometry."
 			echo "	--home=<home>    pickout option --home."
 			echo "	--input=<input>  pickout option --input."
 			echo "	--loop           directories start a new session, loop until a non-directory is selected/entered."
 			echo "	--mode=<mode>    \"copy\", \"open\" or \"echo\", see below (defaults to \"open\")."
 			echo "	--no-center      pickout option --no-center."
-			echo "	--title=<title>  pickout option --title (a default one is used if not given)."
+			echo "	--title=<title>  pickout option --qwindowtitle (a default one is used if not given)."
 			echo "	<root>           the root directory to select files from (defaults to \$HOME)."
 			echo
 			echo "Modes:"
@@ -78,6 +80,19 @@ while [ "$#" -gt 0 ]; do
 			echo "	FILEPICK_TERM, TERMCMD"
 			echo "	                 the terminal in which to use the editor or rifle, defaults to xterm."
 			exit 0
+			;;
+
+		--geometry=*)
+			arg="${1#*=}"
+			[ -z "$arg" ] && fail "--geometry requires argument"
+			[ -n "$geometry" ] && fail "--geometry set multiple times: $geometry, $arg"
+			geometry="$arg"
+			;;
+		--geometry)
+			shift
+			[ -z "$1" ] && fail "--geometry requires argument"
+			[ -n "$geometry" ] && fail "--geometry set multiple times: $geometry, $1"
+			geometry="$1"
 			;;
 
 		# Contrary to other options, --home and --input accept an empty
@@ -166,6 +181,7 @@ fi
 dir_opener=${dir_opener:-xdg-open}
 root=${root:-$HOME}
 title=${title:-"Select file${title_suffix}…"}
+[ -n "$geometry" ] && geometryarg="--qwindowgeometry $geometry"
 
 while true; do
 	root="${root%/}"
@@ -174,11 +190,12 @@ while true; do
 	item=$(
 		pickout \
 			$nocenter \
+			$geometryarg \
 			--accept-input \
 			--history-key "file://$PWD" \
 			--home "$home" \
 			--input "$input" \
-			--title "$title" \
+			--qwindowtitle "$title" \
 			--word-delimiters '._-' \
 			--big-word-delimiters '/.' \
 			--source "$fdcmd"

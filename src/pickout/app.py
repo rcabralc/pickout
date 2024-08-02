@@ -82,9 +82,8 @@ class Filter(QtCore.QObject):
 class MainView(QWebEngineView):
 	_basedir = os.path.dirname(__file__)
 
-	def __init__(self, menu, logger, title, center=None):
+	def __init__(self, menu, logger, center=None):
 		super(MainView, self).__init__()
-		self.setWindowTitle(title)
 		self._logger = logger
 
 		with open(os.path.join(self._basedir, 'menu.html')) as f:
@@ -145,7 +144,6 @@ class Picker(QtCore.QObject):
 			center=True,
 			json_output=False,
 			source=None,
-			title=None,
 			**options
 		):
 		super(Picker, self).__init__()
@@ -165,8 +163,7 @@ class Picker(QtCore.QObject):
 		self._menu = Menu(self, self._filter, logger, **self._options)
 		self._menu.picked.connect(self._picked)
 
-		title = title or self._app_name
-		self._view = MainView(self._menu, self._logger, title, center)
+		self._view = MainView(self._menu, self._logger, center)
 
 		self._filter.start()
 

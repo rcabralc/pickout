@@ -13,8 +13,9 @@ Usage:
             [--limit=<limit>]
             [--no-center]
             [--source=<command>]
-            [--title=<title>]
             [--word-delimiters=<delimiters>]
+            [--qwindowgeometry=<geometry>]
+            [--qwindowtitle=<title>]
 
 Options:
     --accept-input
@@ -67,15 +68,16 @@ Options:
         will cause the menu to not be positioned at the center of the screen
         and, as such, window managers may decide to place the window as it fits.
 
+    --qwindowgeometry <geometry>
+    --qwindowtitle <title>
+    	Qt options.
+
     --source <command>
         Use <command> as input entries.
 
         This is an alternative to reading entries from STDIN (the default).
         Note that <command> is a shell command (more specifically, `/bin/sh`).
         The command used must not return empty entries.
-
-    --title <title>
-        Set the window title to <title>.
 
     --word-delimiters <delimiters>
         Delimiters used for words in addition to those specified
@@ -157,7 +159,6 @@ def main(args):
 		json_output=args['--json-output'],
 		limit=args['--limit'],
 		source=args['--source'],
-		title=args['--title'],
 		word_delimiters=args['--word-delimiters']
 	)
 
