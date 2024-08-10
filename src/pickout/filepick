@@ -10,6 +10,7 @@ usage () {
 	echo "	         [--loop|--dir-opener=<opener>]"
 	echo "	         [--mode=<mode>]"
 	echo "	         [--no-center]"
+	echo "	         [--target=<file>]"
 	echo "	         [--title=<title>]"
 	echo "	         [<root>]"
 }
@@ -66,6 +67,7 @@ while [ "$#" -gt 0 ]; do
 			echo "	--loop           directories start a new session, loop until a non-directory is selected/entered."
 			echo "	--mode=<mode>    \"copy\", \"open\" or \"echo\", see below (defaults to \"open\")."
 			echo "	--no-center      pickout option --no-center."
+			echo "  --target=<file>  skip selection menu and use this file as the result."
 			echo "	--title=<title>  pickout option --qwindowtitle (a default one is used if not given)."
 			echo "	<root>           the root directory to select files from (defaults to \$HOME)."
 			echo
@@ -140,6 +142,19 @@ while [ "$#" -gt 0 ]; do
 			nocenter="--no-center"
 			;;
 
+		--target=*)
+			arg="${1#*=}"
+			[ -z "$arg" ] && fail "--target requires argument"
+			[ -n "$target" ] && fail "--target set multiple times: $target, $arg"
+			target="$arg"
+			;;
+		--target)
+			shift
+			[ -z "$1" ] && fail "--target requires argument"
+			[ -n "$target" ] && fail "--target set multiple times: $target, $1"
+			target="$1"
+			;;
+
 		--title=*)
 			arg="${1#*=}"
 			[ -z "$arg" ] && fail "--title requires argument"
@@ -162,16 +177,16 @@ while [ "$#" -gt 0 ]; do
 	shift
 done
 
+[ -z "$mode" ] && mode="open"
+
 if [ "$mode" = "copy" ]; then
 	title_suffix=" to copy filename"
 elif [ "$mode" = "open" ]; then
 	title_suffix=" to open or edit"
 elif [ "$mode" = "echo" ]; then
 	title_suffix=" to echo"
-elif [ -n "$mode" ]; then
-	fail "invalid mode $mode"
 else
-	mode="open"
+	fail "invalid mode $mode"
 fi
 
 if [ -n "$loop" ] && [ -n "$dir_opener" ]; then
@@ -187,22 +202,26 @@ while true; do
 	root="${root%/}"
 	cd "$root"
 	fdcmd="fd . --type file --follow --hidden --no-ignore ${excludes[*]}"
-	item=$(
-		pickout \
-			$nocenter \
-			$geometryarg \
-			--accept-input \
-			--history-key "file://$PWD" \
-			--home "$home" \
-			--input "$input" \
-			--qwindowtitle "$title" \
-			--word-delimiters '._-' \
-			--big-word-delimiters '/.' \
-			--source "$fdcmd"
-	) || exit 1
+	if [ -z "$target" ]; then
+		item=$(
+			pickout \
+				$nocenter \
+				$geometryarg \
+				--accept-input \
+				--history-key "file://$PWD" \
+				--home "$home" \
+				--input "$input" \
+				--qwindowtitle "$title" \
+				--word-delimiters '._-' \
+				--big-word-delimiters '/' \
+				--source "$fdcmd"
+		) || exit 1
 
-	# Treat item as a file/dir with respect to root unless it starts with /
-	case "$item" in /*) ;; *) false;; esac || item="$root/$item"
+		# Treat item as a file/dir with respect to root unless it starts with /
+		case "$item" in /*) ;; *) false;; esac || item="$root/$item"
+	else
+		item="$target"
+	fi
 
 	if ([ -d "$item" ] && [ -n "$loop" ]); then
 		# In loop mode, always deliver a file, never a directory. Change root
