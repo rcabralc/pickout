@@ -6,7 +6,7 @@
 		return {
 			accept_input (input) { console.log('tell menu to accept input', input) },
 			accept_selected () { console.log('tell menu to accept selected item') },
-			complete (text) { console.log('send input to menu for completion', text) },
+			complete (seq, text) { console.log('send input to menu for completion', text) },
 			dismiss () { console.log('tell menu to quit') },
 			filter (seq, text) { console.log('send input to menu for filtering', seq, text) },
 			log (message) { console.log('send messsage to logger', message) },
@@ -400,8 +400,8 @@
 			if (complete || refresh) {
 				clearTimeout(filterTimeout)
 				filterTimeout = null
-				if (complete) menu.complete(text)
-				else menu.refresh(text)
+				if (complete) menu.complete(++seq, text)
+				else menu.refresh(++seq, text)
 				return
 			}
 

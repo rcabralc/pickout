@@ -1,41 +1,56 @@
 require "./cache"
 require "json"
+require "socket"
 
 module Pickout
-	class Filter
-		def initialize(limit, @output = STDOUT)
-			i = 0
+	struct Entries
+		def self.from_tcp
 			entries = Array(Entry).new(50_000)
-			while (line = STDIN.gets(chomp: true))
-				break if line.empty?
-
-				entries << Entry.new(i += 1, line)
+			server = TCPServer.new("127.0.0.1", 0)
+			STDOUT.puts(server.local_address.port)
+			server.accept do |socket|
+				i = 0
+				socket.each_line do |line|
+					line = line.chomp
+					entries << Entry.new(i += 1, line) unless line.empty?
+				end
 			end
+			server.close
+			new(entries)
+		end
+	end
 
-			entries = Entries.new(entries)
-			@cache = Cache(Array(Match)).new(entries) do |cached_entries, pattern|
+	class Filter
+		def initialize(@entries : Entries, limit : Int32)
+			@cache = Cache(Array(Match)).new(@entries) do |cached_entries, pattern|
 				matches = FilteredMatches.new(cached_entries, pattern).to_a
 				sorted_matches = Ranking.new(matches, limit).to_a
 				{Entries.new(matches.map(&.entry)), sorted_matches}
 			end
 		end
 
-		def initialize(@cache : Cache(Array(Match)), @output = STDOUT)
-		end
+		def process(input : String | Nil)
+			body = parse_request(input)
+			return unless body
 
-		def start
-			while (request = parse_request(line = STDIN.gets(chomp: true)))
-				case request["command"]
-				when "filter" then filter(request)
-				when "complete" then complete(request)
-				else raise "unknown command in line #{line}"
-				end
+			case body["command"]
+			when "filter" then filter(body)
+			when "complete" then complete(body)
 			end
 		end
 
-		def filter(request)
-			input = request["input"].as(String)
-			seq = request["seq"].as(Int32)
+		def start
+			loop do
+				result = process(STDIN.gets(chomp: true))
+				break unless result
+
+				STDOUT.puts(result.to_json)
+			end
+		end
+
+		def filter(body)
+			input = body["input"].as(String)
+			seq = body["seq"].as(Int32)
 			entries, matches = @cache.filter(parse_tokens(input))
 			filtered = entries.size
 			total = @cache.size
@@ -48,19 +63,20 @@ module Pickout
 					key: match.key
 				}
 			end
-			@output.puts({
+			{
 				command: "filter",
+				request: body,
 				seq: seq,
 				total: total,
 				filtered: filtered,
 				items: items
-			}.to_json)
+			}
 		end
 
-		def complete(request)
-			input = request["input"].as(String)
-			seq = request["seq"].as(Int32)
-			sep = request["sep"]?.as(String | Nil)
+		def complete(body)
+			input = body["input"].as(String)
+			seq = body["seq"].as(Int32)
+			sep = body["sep"]?.as(String | Nil)
 			entries, _matches = @cache.filter(parse_tokens(input))
 			size = input.size
 			candidates = entries.compact_map { |e| e.value if e.value.starts_with?(input) }
@@ -70,19 +86,20 @@ module Pickout
 				candidate = candidate[..cut_size - 1]
 			end
 			candidate = input if candidate.empty?
-			@output.puts({
+			{
 				command: "complete",
+				request: body,
 				seq: seq,
 				candidate: candidate
-			}.to_json)
+			}
 		end
 
 		private def parse_request(line)
 			return unless line
 			return if line.empty?
 
-			request = Hash(String, String | Int32 | Nil).from_json(line)
-			request unless request.empty?
+			body = Hash(String, String | Int32 | Nil).from_json(line)
+			body unless body.empty?
 		end
 
 		private def parse_tokens(input)
@@ -137,4 +154,6 @@ module Pickout
 	end
 end
 
-Pickout::Filter.new(ARGV[0].to_i).start if PROGRAM_NAME.ends_with?("filter")
+if PROGRAM_NAME.ends_with?("filter")
+	Pickout::Filter.new(Pickout::Entries.from_tcp, ARGV[0].to_i).start
+end

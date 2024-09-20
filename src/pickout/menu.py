@@ -1,9 +1,8 @@
 from itertools import tee
-from PySide6 import QtCore
+from PySide6.QtCore import QObject, Signal, Slot
 
 import json
-import os
-import sys
+import os.path
 
 
 MAX_HISTORY_ENTRIES = 100
@@ -73,20 +72,19 @@ class HistoryEntry:
 		self.value = value
 
 
-class Menu(QtCore.QObject):
-	completed = QtCore.Signal(str)
-	filtered = QtCore.Signal(int, int, int, list)
-	history = QtCore.Signal(int, str)
-	picked = QtCore.Signal(list)
-	selected = QtCore.Signal(int, str)
-	themed = QtCore.Signal(list)
+class Menu(QObject):
+	completed = Signal(str)
+	filtered = Signal(int, int, int, list)
+	history = Signal(int, str)
+	picked = Signal(list)
+	selected = Signal(int, str)
+	themed = Signal(list)
 
 	_results = []
 	__index = 0
 
 	def __init__(
 			self,
-			parent,
 			filter,
 			logger,
 			sep=None,
@@ -98,7 +96,7 @@ class Menu(QtCore.QObject):
 			input='',
 			**kw
 		):
-		super(Menu, self).__init__(parent)
+		super().__init__()
 		self._logger = logger
 		self._history = History.build(history_key)
 		self._completion_sep = sep
@@ -110,7 +108,7 @@ class Menu(QtCore.QObject):
 		self._filter = filter
 		self._filter.response.connect(self._update_list)
 
-	@QtCore.Slot(result=str)
+	@Slot(result=str)
 	def js_ready(self):
 		return json.dumps(dict(
 			big_delimiters=self._big_delimiters,
@@ -120,8 +118,10 @@ class Menu(QtCore.QObject):
 			pattern_types=PATTERN_TYPES,
 		))
 
-	@QtCore.Slot(dict)
+	@Slot(dict)
 	def _update_list(self, response):
+		req = response['request']
+		self._logger.print(f'menu: updating list for command {req!r}')
 		if response['command'] == 'filter':
 			self._results = response['items']
 			self._index = 0
@@ -141,70 +141,70 @@ class Menu(QtCore.QObject):
 		elif response['command'] == 'complete':
 			self.completed.emit(response['candidate'])
 
-	@QtCore.Slot(int, str)
+	@Slot(int, str)
 	def filter(self, seq, input):
-		self._filter.request(dict(
+		self._filter.requested.emit(dict(
 			command='filter',
 			seq=seq,
 			input=input,
 		))
 
-	@QtCore.Slot(str)
-	def complete(self, input):
-		self._filter.request(dict(
+	@Slot(int, str)
+	def complete(self, seq, input):
+		self._filter.requested.emit(dict(
 			command='complete',
-			seq=0,
+			seq=seq,
 			input=input,
 		))
 
-	@QtCore.Slot(str)
-	def refresh(self, input):
-		self._filter.refresh(dict(
+	@Slot(int, str)
+	def refresh(self, seq, input):
+		self._filter.refreshed.emit(dict(
 			command='filter',
-			seq=0,
+			seq=seq,
 			input=input,
 		))
 
-	@QtCore.Slot()
+	@Slot()
 	def accept_selected(self):
 		if self._results:
 			selected = self._results[self._index]
 			self._history.add(selected['value'])
 			self.picked.emit([selected])
 
-	@QtCore.Slot(str)
+	@Slot(str)
 	def accept_input(self, input):
 		if self._accept_input:
 			self._history.add(input)
 			self.picked.emit([dict(index=-1, value=input + '\n')])
 
-	@QtCore.Slot(int, str)
+	@Slot(int, str)
 	def request_next_from_history(self, index, input):
 		entry = self._history.next(index, input)
 		if entry is not None:
 			self.history.emit(entry.index, entry.value)
 
-	@QtCore.Slot(int, str)
+	@Slot(int, str)
 	def request_prev_from_history(self, index, input):
 		entry = self._history.prev(index, input)
 		if entry is not None:
 			self.history.emit(entry.index, entry.value)
 
-	@QtCore.Slot()
+	@Slot()
 	def select_next(self):
 		self._index += 1
 		self._emit_selection()
 
-	@QtCore.Slot()
+	@Slot()
 	def select_prev(self):
 		self._index -= 1
 		self._emit_selection()
 
-	@QtCore.Slot()
+	@Slot()
 	def dismiss(self):
 		self.picked.emit([])
 
-	@QtCore.Slot(str)
+	@Slot(str)
 	def log(self, message):
 		self._logger.print(message)
 
