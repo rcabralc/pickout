@@ -51,7 +51,7 @@ while [ "$#" -gt 0 ]; do
 			;;
 
 		-h|--help)
-			echo "filepick: select a file or directory using fd and pickout and open it using rifle, xdg-open or your text editor"
+			echo "filepick: select a file or directory using fd and pickout and open it using xdg-open or your text editor"
 			echo
 			usage
 			echo
@@ -73,14 +73,14 @@ while [ "$#" -gt 0 ]; do
 			echo
 			echo "Modes:"
 			echo "	copy             copy selection to Wayland clipboard."
-			echo "	open             open selection using rifle, xdg-open or your editor."
+			echo "	open             open selection using xdg-open or your editor."
 			echo "	echo             echoes selection to standard output."
 			echo
 			echo "Environment variables:"
 			echo "	FILEPICK_EDITOR, VISUAL, EDITOR"
 			echo "	                 the editor to use to open text files."
 			echo "	FILEPICK_TERM, TERMCMD"
-			echo "	                 the terminal in which to use the editor or rifle, defaults to xterm."
+			echo "	                 the terminal in which to use your editor (defaults to xterm)."
 			exit 0
 			;;
 
@@ -248,7 +248,7 @@ while true; do
 	[ -d "$item" ] && exec $dir_opener "$item"
 
 	if [ -f "$item" ]; then
-		opener=rifle
+		file -bik "$item" | grep -q text/plain && opener="$editor" || opener=xdg-open
 	else
 		# Not a file or a directory. Attempt to edit it (the user's editor will
 		# likely create a new file, possibly creating any necessary intermediary
@@ -256,11 +256,14 @@ while true; do
 		opener="$editor"
 	fi
 
-	# If attached to a terminal, just open the item from it.
-	[ -t 0 ] && exec $opener -- "$item"
+	# xdg-open doesn't need a terminal, just fire it and quit.
+	[ "$opener" = xdg-open ] && exec xdg-open "$item"
+
+	# If attached to a terminal, just open the item from it and quit.
+	[ -t 0 ] && exec $editor -- "$item"
 
 	# Otherwise, spawn a new terminal and then open the item.
 	term="${FILEPICK_TERM:-${TERMCMD:-xterm}} -e"
-	EDITOR="$editor" setsid $term $opener -- "$item" &
+	EDITOR="$editor" setsid $term $editor -- "$item" &
 	exit 0
 done
