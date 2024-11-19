@@ -11,7 +11,6 @@ Usage:
             [--input=<input>]
             [--json-output]
             [--limit=<limit>]
-            [--no-center]
             [--source=<command>]
             [--word-delimiters=<delimiters>]
             [--qwindowgeometry=<geometry>]
@@ -60,13 +59,6 @@ Options:
         [default: 50]
 
         Show up to <limit> items.
-
-    --no-center
-        Do not move the menu window to the center of the screen.
-
-        By default, the menu is centered in the screen.  Disabling centering
-        will cause the menu to not be positioned at the center of the screen
-        and, as such, window managers may decide to place the window as it fits.
 
     --qwindowgeometry <geometry>
     --qwindowtitle <title>
@@ -151,7 +143,6 @@ def main(args):
 		logger=logger,
 		accept_input=args['--accept-input'],
 		big_word_delimiters=args['--big-word-delimiters'],
-		center=not args['--no-center'],
 		completion_sep=args['--completion-sep'],
 		history_key=args['--history-key'],
 		home=args['--home'],

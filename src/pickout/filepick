@@ -9,7 +9,6 @@ usage () {
 	echo "	         [--input=<input>]"
 	echo "	         [--loop|--dir-opener=<opener>]"
 	echo "	         [--mode=<mode>]"
-	echo "	         [--no-center]"
 	echo "	         [--target=<file>]"
 	echo "	         [--title=<title>]"
 	echo "	         [<root>]"
@@ -66,7 +65,6 @@ while [ "$#" -gt 0 ]; do
 			echo "	--input=<input>  pickout option --input."
 			echo "	--loop           directories start a new session, loop until a non-directory is selected/entered."
 			echo "	--mode=<mode>    \"copy\", \"open\" or \"echo\", see below (defaults to \"open\")."
-			echo "	--no-center      pickout option --no-center."
 			echo "  --target=<file>  skip selection menu and use this file as the result."
 			echo "	--title=<title>  pickout option --qwindowtitle (a default one is used if not given)."
 			echo "	<root>           the root directory to select files from (defaults to \$HOME)."
@@ -138,10 +136,6 @@ while [ "$#" -gt 0 ]; do
 			mode="$1"
 			;;
 
-		--no-center)
-			nocenter="--no-center"
-			;;
-
 		--target=*)
 			arg="${1#*=}"
 			[ -z "$arg" ] && fail "--target requires argument"
@@ -205,7 +199,6 @@ while true; do
 	if [ -z "$target" ]; then
 		item=$(
 			pickout \
-				$nocenter \
 				$geometryarg \
 				--accept-input \
 				--history-key "file://$PWD" \

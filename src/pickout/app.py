@@ -170,10 +170,9 @@ class MainView(QWebEngineView):
 	_basedir = os.path.dirname(__file__)
 	_menu = None
 
-	def __init__(self, logger, center=None):
+	def __init__(self, logger):
 		super().__init__()
 		self._logger = logger
-		self._center = center
 
 		with open(os.path.join(self._basedir, 'menu.html')) as f:
 			template = Template(f.read())
@@ -197,15 +196,6 @@ class MainView(QWebEngineView):
 			QWebEngineSettings.StandardFont,
 			QApplication.font().family()
 		)
-
-	def show(self):
-		super().show()
-		if self._center:
-			frameGeometry = self.frameGeometry()
-			screen = QApplication.primaryScreen()
-			centerPoint = screen.geometry().center()
-			frameGeometry.moveCenter(centerPoint)
-			self.move(frameGeometry.topLeft())
 
 	def setMenu(self, menu):
 		self._menu = menu
@@ -238,7 +228,6 @@ class Picker:
 			self,
 			logger,
 			limit=None,
-			center=True,
 			json_output=False,
 			source=None,
 			**options
@@ -250,7 +239,7 @@ class Picker:
 		self._app = QApplication(sys.argv)
 		self._app.setApplicationName(self._app_name)
 		self._app.setDesktopFileName(f'{self._app_name}.desktop')
-		self._view = MainView(self._logger, center)
+		self._view = MainView(self._logger)
 
 		if source is None:
 			source = StreamSource(sys.stdin, encoding='utf-8')
@@ -267,6 +256,7 @@ class Picker:
 		self._menu.picked.connect(self._picked)
 		self._view.setMenu(self._menu)
 
+	def exec(self):
 		signal.signal(signal.SIGINT, lambda s, f: self.exit(1))
 		QTimer.singleShot(0, self._filter_thread.start)
 
@@ -274,8 +264,7 @@ class Picker:
 		self._keep_event_loop_active.timeout.connect(lambda: None)
 		self._keep_event_loop_active.start(100)
 
-	def exec(self):
-		QTimer.singleShot(100, self._view.show)
+		self._view.show()
 		return self._app.exec()
 
 	def exit(self, code):
