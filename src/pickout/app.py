@@ -1,7 +1,6 @@
 from menu import Menu
 from PySide6.QtCore import QEvent
 from PySide6.QtCore import QObject
-from PySide6.QtCore import QProcess
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QThread
 from PySide6.QtCore import QTimer
@@ -25,90 +24,36 @@ import sys
 import time
 
 
-class StreamSource:
-	def __init__(self, stream, encoding):
-		self._stream = stream
-		self._enc = encoding
-		self.consumed = False
-
-	def get(self):
-		entries = (e for e in iter(self._stream.readline, '') if len(e))
-		data = (''.join(entry for entry in entries) + '\n').encode(self._enc)
-		self.consumed = True
-		return data
-
-
-class ProcessSource:
-	consumed = False
-
-	def __init__(self, command):
-		self._cmd = command
-
-	def get(self):
-		command = Popen(self._cmd, stdout=PIPE, stderr=sys.stderr, shell=True)
-		(data, _) = command.communicate()
-		return data
-
-
-class FilterData(QObject):
-	_connected = False
-	_retries = 100
-
-	def __init__(self, data, port):
-		super().__init__()
-		self._port = port
-		self._socket = QTcpSocket()
-		self._socket.errorOccurred.connect(self._handle_error)
-		self._socket.connected.connect(self._handle_connected)
-		self._data = data
-		self._connect()
-
-	def _connect(self):
-		self._socket.connectToHost('127.0.0.1', self._port)
-
-	@Slot()
-	def _handle_connected(self):
-		self._socket.write(self._data)
-		self._socket.flush()
-		self._socket.disconnectFromHost()
-		self._data = None
-
-	@Slot(QTcpSocket.SocketError)
-	def _handle_error(self, error):
-		sys.stderr.write(str(error))
-		sys.stderr.write('\n')
-		if error == QAbstractSocket.ConnectionRefusedError and self._retries:
-			self._retries -= 1
-			time.sleep(0.02)
-			self._connect()
-
-
 class Filter(QObject):
 	refreshed = Signal(dict)
 	requested = Signal(dict)
 	response = Signal(dict)
 	_enc = 'utf-8'
 	_path = os.path.join(os.path.dirname(__file__), 'filter')
-	_process = _socket = None
+	_process = _socket = _command = None
+	_connection_retries = 100
 
 	def __init__(self, logger, thread, source, limit):
 		super().__init__()
+
+		self.moveToThread(thread)
+
 		self._logger = logger
 		self._source = source
 		self._limit = limit
 		self._requests = []
-		self.moveToThread(thread)
-		thread.started.connect(self._start)
-		thread.finished.connect(self._stop)
 		self.refreshed.connect(self._refresh)
 		self.requested.connect(self._request)
+
+		thread.started.connect(self._start)
+		thread.finished.connect(self._stop)
 
 	@Slot(dict)
 	def _refresh(self, payload):
 		if self._process is None:
 			return
 
-		if not self._source.consumed:
+		if self._source is not None:
 			self._start()
 
 		self._request(payload)
@@ -126,53 +71,74 @@ class Filter(QObject):
 			req = self._requests.pop(0)
 			self._logger.print(f'filter: flushing {req!r}')
 			data = json.dumps(req).encode(self._enc)
-			self._process.write(data + b'\n')
+			self._socket.write(data + b'\n')
 
 	@Slot()
 	def _start(self):
 		self._stop()
-		self._process = QProcess()
-		self._process.readyReadStandardOutput.connect(self._handle_response)
-		self._process.readyReadStandardError.connect(self._handle_error)
-		self._process.started.connect(self._flush_requests)
-		self._process.start(self._path, [str(self._limit)])
+		if self._source is None:
+			stdin = sys.stdin
+		else:
+			self._command = Popen(self._source, stdout=PIPE, shell=True)
+			stdin = self._command.stdout
+		self._process = Popen(
+			[self._path, str(self._limit), '50000'],
+			stdin=stdin,
+			stdout=PIPE,
+			stderr=sys.stderr
+		)
+		self._port = int(self._process.stdout.readline())
+		self._logger.print(f'filter: connecting to port {self._port}')
+		self._socket = QTcpSocket()
+		self._socket.errorOccurred.connect(self._handle_error)
+		self._socket.readyRead.connect(self._handle_response)
+		self._connect()
+
+	def _connect(self):
+		self._socket.connectToHost('127.0.0.1', self._port)
+		self._logger.print(f'filter: connected to port {self._port}')
 
 	@Slot()
 	def _stop(self):
+		if self._socket is not None:
+			self._socket.disconnectFromHost()
+			self._socket = None
 		if self._process is not None:
 			self._process.terminate()
-			if not self._process.waitForFinished():
-				self._process.kill()
-				self._process.waitForFinished()
-		self._process = None
-		self._data = None
+			self._process = None
+		if self._command is not None:
+			self._command.terminate()
+			self._command = None
 
 	@Slot()
 	def _handle_response(self):
-		f = io.BytesIO(bytes(self._process.readAllStandardOutput()))
-		for line in f.readlines():
-			if not self._data:
-				# First line contains the "ephemeral" port of the data socket.
-				self._data = FilterData(self._source.get(), int(line))
-				return
+		while line := bytes(self._socket.readLine()).strip():
+			self._logger.print(f'filter: handling response line {line!r}')
 			res = json.loads(line.decode(self._enc))
 			req = res['request']
 			self._logger.print(f'filter: handling response to command {req!r}')
 			self.response.emit(res)
 
 	@Slot()
-	def _handle_error(self):
-		data = bytes(self._process.readAllStandardError()).decode(self._enc)
-		sys.stderr.write(data)
+	def _handle_error(self, error):
+		if (error == QAbstractSocket.ConnectionRefusedError and
+			self._connection_retries):
+			self._connection_retries -= 1
+			time.sleep(0.02)
+			self._connect()
+			return
+		sys.stderr.write(str(error))
+		sys.stderr.write('\n')
 
 
 class MainView(QWebEngineView):
 	_basedir = os.path.dirname(__file__)
-	_menu = None
+	_activated = False
 
-	def __init__(self, logger):
+	def __init__(self, logger, menu):
 		super().__init__()
 		self._logger = logger
+		self._menu = menu
 
 		with open(os.path.join(self._basedir, 'menu.html')) as f:
 			template = Template(f.read())
@@ -180,12 +146,12 @@ class MainView(QWebEngineView):
 		with open(os.path.join(self._basedir, 'menu.js')) as f:
 			frontend_source = f.read()
 
-		self._theme = Theme(self.palette())
 		self._channel = QWebChannel()
+		self._channel.registerObject('bridge', self._menu)
+		self._apply_theme()
 
 		page = self.page()
 		page.setHtml(template.html(self._theme))
-		page.setBackgroundColor(self._theme.background_color)
 		page.setWebChannel(self._channel)
 
 		self.loadFinished.connect(lambda: page.runJavaScript(frontend_source))
@@ -197,12 +163,9 @@ class MainView(QWebEngineView):
 			QApplication.font().family()
 		)
 
-	def setMenu(self, menu):
-		self._menu = menu
-		self._channel.registerObject('bridge', menu)
-		self._apply_theme()
-
 	def changeEvent(self, event):
+		if event.type() == QEvent.ActivationChange and not self._activated:
+			self._activated = True
 		if event.type() == QEvent.PaletteChange:
 			self._apply_theme()
 		return super().changeEvent(event)
@@ -214,10 +177,9 @@ class MainView(QWebEngineView):
 
 	def _apply_theme(self):
 		self._theme = theme = Theme(self.palette())
-		if self._menu is not None:
+		if self._activated:
 			self._menu.themed.emit([[k, v] for k, v in theme.items()])
-		page = self.page()
-		page.setBackgroundColor(theme.background_color)
+		self.page().setBackgroundColor(theme.background_color)
 
 
 class Picker:
@@ -239,12 +201,7 @@ class Picker:
 		self._app = QApplication(sys.argv)
 		self._app.setApplicationName(self._app_name)
 		self._app.setDesktopFileName(f'{self._app_name}.desktop')
-		self._view = MainView(self._logger)
 
-		if source is None:
-			source = StreamSource(sys.stdin, encoding='utf-8')
-		else:
-			source = ProcessSource(source)
 		self._filter_thread = QThread()
 		self._filter = Filter(
 			logger,
@@ -254,7 +211,8 @@ class Picker:
 		)
 		self._menu = Menu(self._filter, logger, **self._options)
 		self._menu.picked.connect(self._picked)
-		self._view.setMenu(self._menu)
+
+		self._view = MainView(self._logger, self._menu)
 
 	def exec(self):
 		signal.signal(signal.SIGINT, lambda s, f: self.exit(1))

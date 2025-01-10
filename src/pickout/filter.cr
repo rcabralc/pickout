@@ -4,19 +4,13 @@ require "socket"
 
 module Pickout
 	struct Entries
-		def self.from_tcp
-			entries = Array(Entry).new(50_000)
-			server = TCPServer.new("127.0.0.1", 0)
-			STDOUT.puts(server.local_address.port)
-			server.accept do |socket|
-				i = 0
-				socket.each_line do |line|
-					line = line.chomp
-					entries << Entry.new(i += 1, line) unless line.empty?
-				end
+		def self.read(initial_capacity)
+			i = 0
+			entries = Array(Entry).new(initial_capacity)
+			while (line = STDIN.gets(chomp: true))
+				entries << Entry.new(i += 1, line) unless line.empty?
 			end
-			server.close
-			new(entries)
+			Entries.new(entries)
 		end
 	end
 
@@ -40,12 +34,15 @@ module Pickout
 		end
 
 		def start
-			loop do
-				result = process(STDIN.gets(chomp: true))
-				break unless result
-
-				STDOUT.puts(result.to_json)
+			server = TCPServer.new("127.0.0.1", 0)
+			STDOUT.puts(server.local_address.port)
+			server.accept do |socket|
+				socket.each_line do |line|
+					result = process(line.chomp)
+					socket.puts(result.to_json) if result
+				end
 			end
+			server.close
 		end
 
 		def filter(body)
@@ -155,5 +152,6 @@ module Pickout
 end
 
 if PROGRAM_NAME.ends_with?("filter")
-	Pickout::Filter.new(Pickout::Entries.from_tcp, ARGV[0].to_i).start
+	entries = Pickout::Entries.read(ARGV.size == 2 ? ARGV[1].to_i : 50_000)
+	Pickout::Filter.new(entries, ARGV[0].to_i).start
 end
