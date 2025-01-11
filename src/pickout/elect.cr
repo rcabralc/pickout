@@ -169,10 +169,9 @@ module Pickout
 	end
 
 	struct FuzzyPattern
-		getter lowercase_value, value
+		getter value
 
 	    @value : String
-	    @lowercase_value : String
 
 		def self.build(value, **options)
 			return unless value.starts_with?("@*")
@@ -182,7 +181,6 @@ module Pickout
 
 		def initialize(value : String)
 		    @value = value.unicode_normalize(:nfc)
-		    @lowercase_value = @value.downcase
 		end
 
 		delegate empty?, size, to: @value
@@ -206,9 +204,6 @@ module Pickout
 
 	struct MatchableFuzzyPattern
 		def initialize(@pattern : FuzzyPattern, @workspace : FuzzyWorkspace)
-			@uppercases = Array(Bool).new(@pattern.value.size) do |index|
-				@pattern.value[index].uppercase?
-			end
 		end
 
 		delegate empty?, size, to: @pattern
@@ -219,8 +214,7 @@ module Pickout
 			entry_lowercase_value = entry.lowercase_value
 			entry_value = entry.value
 			v_size = entry.size
-			lowercase_value = @pattern.lowercase_value
-			uppercases = @uppercases
+			value = @pattern.value
 
 			scores, ending_scores = @workspace.scores(entry.size)
 			first_indices = @workspace.first_indices
@@ -230,17 +224,17 @@ module Pickout
 			l_limit = 0
 			best_score = MIN_SCORE
 
-			lowercase_value.each_char_with_index do |p_char, pi|
+			value.each_char_with_index do |p_char, pi|
 				prev_score = best_score = MIN_SCORE
 
-				entry_lowercase_value.each_char_with_index do |v_char, vi|
+				entry_lowercase_value.each_char_with_index do |v_char_lower, vi|
 					next if vi < l_limit || vi > r_limit
 
-					if v_char == p_char
+					if compare_chars(p_char, v_char_lower, entry_value[vi])
 						# Record start index and bump l_limit.
 						first_indices[pi] = l_limit = vi if best_score == MIN_SCORE
 						score = entry.base_score_at(vi)
-						if uppercases[pi] && entry_value[vi].uppercase?
+						if p_char.uppercase? && entry_value[vi].uppercase?
 							score += ScorePoints[:uppercase]
 						end
 						unless pi.zero?
@@ -282,7 +276,8 @@ module Pickout
 				vi = best_idx - 1
 
 				# Prefer to show a consecutive match if the score ending here is the same as if it were not a match. The final resulting score would have been the same.
-				if ending_scores[pi, vi] == scores[pi, vi] && lowercase_value[pi] == entry_lowercase_value[vi]
+				if (ending_scores[pi, vi] == scores[pi, vi] &&
+					compare_chars(value[pi], entry_lowercase_value[vi], entry_value[vi]))
 					indices[pi] = best_idx = vi
 					next
 				end
@@ -304,6 +299,12 @@ module Pickout
 
 			indices = Slice.new(indices, size, read_only: true)
 			Match.new(entry, match_score, indices)
+		end
+
+		private def compare_chars(p_char : Char, v_char_lower : Char, v_char : Char)
+			return p_char == v_char_lower if p_char.lowercase?
+
+			p_char == v_char
 		end
 	end
 
