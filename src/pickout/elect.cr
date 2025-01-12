@@ -180,10 +180,12 @@ module Pickout
 		end
 
 		def initialize(value : String)
+			raise ArgumentError.new("empty value") if value.empty?
+
 		    @value = value.unicode_normalize(:nfc)
 		end
 
-		delegate empty?, size, to: @value
+		delegate size, to: @value
 		def_hash @value
 
 		def ==(other : FuzzyPattern)
@@ -191,7 +193,7 @@ module Pickout
 		end
 
 		def includes?(_other : RegexPattern)
-			empty?
+			false
 		end
 
 		def includes?(other : FuzzyPattern)
@@ -206,11 +208,9 @@ module Pickout
 		def initialize(@pattern : FuzzyPattern, @workspace : FuzzyWorkspace)
 		end
 
-		delegate empty?, size, to: @pattern
+		delegate size, to: @pattern
 
 		def matches?(entry)
-			return Match.new(entry) if empty?
-
 			entry_lowercase_value = entry.lowercase_value
 			entry_value = entry.value
 			v_size = entry.size
@@ -320,9 +320,10 @@ module Pickout
 		end
 
 		def initialize(value : String, ignore_bad_patterns = true)
+			raise ArgumentError.new("empty value") if value.empty?
+
 			@value = value.unicode_normalize(:nfc)
 			@re = nil
-			return if @value.blank?
 
 			begin
 				@re = Regex.new(@value, Regex::Options::IGNORE_CASE)
@@ -339,10 +340,6 @@ module Pickout
 
 		def includes?(_other)
 			false
-		end
-
-		def empty?
-			@re.nil? || @value.empty?
 		end
 
 		def matches?(entry)
@@ -384,27 +381,34 @@ module Pickout
 			end
 		end
 
+		delegate empty?, to: @patterns
+		def_hash @patterns
+
 		def to_matchable
-			return MatchableCompositePattern.new([] of MatchableSinglePattern) if empty?
+			patterns = [] of MatchableSinglePattern
 
 			fuzzy_width = 0
 			@patterns.each do |pattern|
 				fuzzy_width = pattern.size if pattern.is_a?(FuzzyPattern) && pattern.size > fuzzy_width
 			end
 
-			workspace = FuzzyWorkspace.new(fuzzy_width)
-			patterns = @patterns.map do |pattern|
-				if pattern.is_a?(FuzzyPattern)
-					MatchableFuzzyPattern.new(pattern, workspace)
-				else
-					pattern
+			if fuzzy_width.positive?
+				workspace = FuzzyWorkspace.new(fuzzy_width)
+				@patterns.each do |pattern|
+					if pattern.is_a?(FuzzyPattern)
+						patterns << MatchableFuzzyPattern.new(pattern, workspace)
+					else
+						patterns << pattern
+					end
 				end
+			else
+				# No fuzzy pattern (since no pattern is empty)
+				@patterns.each { |p| patterns << p unless p.is_a?(FuzzyPattern) }
+				MatchableCompositePattern.new(patterns)
 			end
 
 			MatchableCompositePattern.new(patterns)
 		end
-
-		def_hash @patterns
 
 		def includes?(other)
 			return false if other.patterns.empty?
@@ -416,10 +420,6 @@ module Pickout
 
 		def ==(other)
 			@patterns == other.patterns
-		end
-
-		def empty?
-			@patterns.all?(&.empty?)
 		end
 	end
 
