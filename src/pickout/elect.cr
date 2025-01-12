@@ -145,7 +145,7 @@ module Pickout
 		end
 	end
 
-	struct FuzzyWorkspace
+	class FuzzyWorkspace
 		getter first_indices, best_indices
 
 		def initialize(@pattern_size : Int32, @entry_size : Int32 = 256)
@@ -168,7 +168,7 @@ module Pickout
 		end
 	end
 
-	struct FuzzyPattern
+	class FuzzyPattern
 		getter value
 
 	    @value : String
@@ -202,7 +202,7 @@ module Pickout
 		end
 	end
 
-	struct MatchableFuzzyPattern
+	class MatchableFuzzyPattern
 		def initialize(@pattern : FuzzyPattern, @workspace : FuzzyWorkspace)
 		end
 
@@ -308,7 +308,7 @@ module Pickout
 		end
 	end
 
-	struct RegexPattern
+	class RegexPattern
 		protected getter value
 
 	    @value : String
@@ -437,23 +437,25 @@ module Pickout
 		end
 	end
 
-	struct FilteredMatches
+	class FilteredMatches
 		include Enumerable(Match)
-
-		def initialize(@entries : Entries, strings : Array(String))
-			@pattern = CompositePattern.from_strings(strings)
-		end
 
 		def initialize(@entries : Entries, @pattern : CompositePattern)
 		end
 
-		def initialize(strings : Array(String), pattern : String)
-			@entries = Entries.new(strings)
-			@pattern = CompositePattern.from_strings([pattern])
+		def initialize(entries : Entries, strings : Array(String))
+			initialize(entries, CompositePattern.from_strings(strings))
 		end
 
-		def initialize(@entries : Entries, pattern : String)
-			@pattern = CompositePattern.from_strings([pattern])
+		def initialize(entries : Entries, pattern : String)
+			initialize(entries, CompositePattern.from_strings([pattern]))
+		end
+
+		def initialize(strings : Array(String), pattern : String)
+			initialize(
+				Entries.new(strings),
+				CompositePattern.from_strings([pattern])
+			)
 		end
 
 		def sort
@@ -509,7 +511,7 @@ module Pickout
 		{% end %}
 	end
 
-	struct Ranking
+	class Ranking
 		include Enumerable(Match)
 
 		def initialize(matches : Enumerable(Match), @limit : Int32)
@@ -523,7 +525,7 @@ module Pickout
 		delegate each, to: @sorted
 	end
 
-	struct MaxHeap(T, K)
+	class MaxHeap(T, K)
 		def initialize(@capacity : Int32, items : Enumerable(T), &@key : T -> K)
 			@size = 0
 			@items = Pointer(Tuple(T, K)).malloc(@capacity)
