@@ -14,11 +14,10 @@ module Pickout
 	}
 
 	class Entry
-		getter data, index, value
+		getter index, value
 
 		@value : String
-		@lowercase_value : String?
-		@base_char_types : Array(Symbol)?
+		@base_scores : Array(Int32)?
 
 		def initialize(@index : Int32, value : String)
 			@value = value.unicode_normalize(:nfc)
@@ -26,33 +25,31 @@ module Pickout
 
 		delegate size, empty?, to: @value
 
-		def lowercase_value
-			@lowercase_value ||= @value.downcase
-		end
-
 		def base_score_at(index)
-			ScorePoints[base_char_types[index]]
+			base_scores[index]
 		end
 
-		protected def base_char_types
-			@base_char_types ||= Array(Symbol).new(@value.size) do |index|
-				next :big_word_start if index.zero?
+		private def base_scores
+			@base_scores ||= Array(Int32).new(@value.size) do |index|
+				next ScorePoints[:big_word_start] if index.zero?
 
 				char = @value[index]
-				next :regular unless char.alphanumeric?
+				next ScorePoints[:regular] unless char.alphanumeric?
 
 				prev = @value[index - 1]
-				next :big_word_start if prev.whitespace?
-				next :word_start unless prev.alphanumeric?
-				next :word_start if char.uppercase? && prev.lowercase?
+				next ScorePoints[:big_word_start] if prev.whitespace?
+				next ScorePoints[:word_start] unless prev.alphanumeric?
+				next ScorePoints[:word_start] if char.uppercase? && prev.lowercase?
 
-				:regular
+				ScorePoints[:regular]
 			end
 		end
 	end
 
 	struct Entries
 		include Enumerable(Entry)
+
+		@entries : Array(Entry)
 
 		def initialize(strings : Enumerable(String))
 			@entries = strings.map_with_index { |s, i| Entry.new(i, s) }
@@ -62,6 +59,10 @@ module Pickout
 		end
 
 		delegate each, to: @entries
+
+		def size : Int32
+			@entries.size
+		end
 	end
 
 	alias MatchKey = Tuple(Int32, Int32, Int32)
@@ -211,12 +212,11 @@ module Pickout
 		delegate size, to: @pattern
 
 		def matches?(entry)
-			entry_lowercase_value = entry.lowercase_value
 			entry_value = entry.value
 			v_size = entry.size
 			value = @pattern.value
 
-			scores, ending_scores = @workspace.scores(entry.size)
+			scores, ending_scores = @workspace.scores(v_size)
 			first_indices = @workspace.first_indices
 			best_indices = @workspace.best_indices
 
@@ -227,23 +227,22 @@ module Pickout
 			value.each_char_with_index do |p_char, pi|
 				prev_score = best_score = MIN_SCORE
 
-				entry_lowercase_value.each_char_with_index do |v_char_lower, vi|
+				entry_value.each_char_with_index do |v_char, vi|
 					next if vi < l_limit || vi > r_limit
 
-					if compare_chars(p_char, v_char_lower, entry_value[vi])
+					if compare_chars(p_char, v_char)
 						# Record start index and bump l_limit.
 						first_indices[pi] = l_limit = vi if best_score == MIN_SCORE
 						score = entry.base_score_at(vi)
-						if p_char.uppercase? && entry_value[vi].uppercase?
+						if p_char.uppercase? && v_char.uppercase?
 							score += ScorePoints[:uppercase]
 						end
 						unless pi.zero?
 							prev_pi = pi - 1
 							prev_vi = vi - 1
 							score += scores[prev_pi, prev_vi]
-							if ending_scores[prev_pi, prev_vi] + ScorePoints[:consecutive] > score
-								score = ending_scores[prev_pi, prev_vi] + ScorePoints[:consecutive]
-							end
+							consecutive_score = ending_scores[prev_pi, prev_vi] + ScorePoints[:consecutive]
+							score = consecutive_score if consecutive_score > score
 						end
 					else
 						next if best_score == MIN_SCORE
@@ -272,12 +271,12 @@ module Pickout
 			best_idx = best_indices[size - 1]
 			indices[size - 1] = best_idx
 
-			(size - 2).step(to: 0, by: -1) do |pi|
+			(size - 2).downto(0) do |pi|
 				vi = best_idx - 1
 
 				# Prefer to show a consecutive match if the score ending here is the same as if it were not a match. The final resulting score would have been the same.
 				if (ending_scores[pi, vi] == scores[pi, vi] &&
-					compare_chars(value[pi], entry_lowercase_value[vi], entry_value[vi]))
+					compare_chars(value[pi], entry_value[vi]))
 					indices[pi] = best_idx = vi
 					next
 				end
@@ -286,7 +285,7 @@ module Pickout
 				best_score = MIN_SCORE
 
 				# Check only until start index, because after that numbers weren't initialized.
-				vi.step(to: first_indices[pi], by: -1) do |vi|
+				vi.downto(first_indices[pi]) do |vi|
 					score = scores[pi, vi]
 					break if score <= best_score
 
@@ -301,8 +300,8 @@ module Pickout
 			Match.new(entry, match_score, indices)
 		end
 
-		private def compare_chars(p_char : Char, v_char_lower : Char, v_char : Char)
-			return p_char == v_char_lower if p_char.lowercase?
+		private def compare_chars(p_char : Char, v_char : Char)
+			return p_char == v_char.downcase if p_char.lowercase?
 
 			p_char == v_char
 		end
@@ -459,9 +458,7 @@ module Pickout
 		end
 
 		def sort
-			matches = Array(Match).new(@entries.size)
-			each { |m| matches << m }
-			matches.sort_by!(&.key)
+			to_a.sort_by!(&.key)
 		end
 
 		{% if flag?(:preview_mt) %}
@@ -469,8 +466,8 @@ module Pickout
 			size = @entries.size
 			return if size.zero?
 
-			concurrency = (System.cpu_count.to_i32 - 1).clamp(1, size)
-			entries_channel = Channel(Entry).new(size)
+			concurrency = (System.cpu_count.to_i32 - 2).clamp(1, size)
+			entries_channel = Channel(Entry).new(50_000)
 			matches_channel = Channel(Match).new(size)
 			active_workers = Atomic.new(concurrency)
 
