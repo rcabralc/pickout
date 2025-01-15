@@ -137,11 +137,11 @@ module Pickout
 			@elements = Pointer(T).malloc(rows * @cols)
 		end
 
-		def [](row, col)
+		def [](row, col) : T
 			@elements[row * @cols + col]
 		end
 
-		def []=(row, col, value)
+		def []=(row, col, value : T)
 			@elements[row * @cols + col] = value
 		end
 	end
@@ -220,34 +220,35 @@ module Pickout
 			first_indices = @workspace.first_indices
 			best_indices = @workspace.best_indices
 
-			r_limit = v_size - size
+			r_limit = v_size &- size
 			l_limit = 0
-			best_score = MIN_SCORE
+			min_score = best_score = MIN_SCORE
 
 			value.each_char_with_index do |p_char, pi|
-				prev_score = best_score = MIN_SCORE
+				prev_score = best_score = min_score
 
 				entry_value.each_char_with_index do |v_char, vi|
 					next if vi < l_limit || vi > r_limit
+					score = 0
 
 					if compare_chars(p_char, v_char)
 						# Record start index and bump l_limit.
-						first_indices[pi] = l_limit = vi if best_score == MIN_SCORE
-						score = entry.base_score_at(vi)
+						first_indices[pi] = l_limit = vi if best_score == min_score
+						score &+= entry.base_score_at(vi)
 						if p_char.uppercase? && v_char.uppercase?
-							score += ScorePoints[:uppercase]
+							score &+= ScorePoints[:uppercase]
 						end
 						unless pi.zero?
-							prev_pi = pi - 1
-							prev_vi = vi - 1
-							score += scores[prev_pi, prev_vi]
-							consecutive_score = ending_scores[prev_pi, prev_vi] + ScorePoints[:consecutive]
+							prev_pi = pi &- 1
+							prev_vi = vi &- 1
+							score &+= scores[prev_pi, prev_vi]
+							consecutive_score = ending_scores[prev_pi, prev_vi] &+ ScorePoints[:consecutive]
 							score = consecutive_score if consecutive_score > score
 						end
 					else
-						next if best_score == MIN_SCORE
+						next if best_score == min_score
 
-						score = MIN_SCORE
+						score &+= min_score
 					end
 
 					ending_scores[pi, vi] = score
@@ -260,19 +261,19 @@ module Pickout
 				end
 
 				# If we didn't improve best score, we failed to find a match for `p_char`.
-				return if best_score == MIN_SCORE
+				return if best_score == min_score
 
-				r_limit += 1
-				l_limit += 1
+				r_limit &+= 1
+				l_limit &+= 1
 			end
 
 			match_score = best_score
 			indices = Pointer(Int32).malloc(size)
-			best_idx = best_indices[size - 1]
-			indices[size - 1] = best_idx
+			best_idx = best_indices[size &- 1]
+			indices[size &- 1] = best_idx
 
-			(size - 2).downto(0) do |pi|
-				vi = best_idx - 1
+			(size &- 2).downto(0) do |pi|
+				vi = best_idx &- 1
 
 				# Prefer to show a consecutive match if the score ending here is the same as if it were not a match. The final resulting score would have been the same.
 				if (ending_scores[pi, vi] == scores[pi, vi] &&
@@ -282,7 +283,7 @@ module Pickout
 				end
 
 				# Look for the best index, stop looking if score starts decreasing. Might not find the best perfect match, as there are multiple possible ways, but stopping early won't hurt.
-				best_score = MIN_SCORE
+				best_score = min_score
 
 				# Check only until start index, because after that numbers weren't initialized.
 				vi.downto(first_indices[pi]) do |vi|
