@@ -464,6 +464,11 @@ module Pickout
 
 		{% if flag?(:preview_mt) %}
 		def each
+			if @pattern.empty?
+				@entries.each { |e| yield PassthruMatch.new(e) }
+				return
+			end
+
 			size = @entries.size
 			return if size.zero?
 
@@ -500,6 +505,11 @@ module Pickout
 		end
 		{% else %}
 		def each
+			if @pattern.empty?
+				@entries.each { |e| yield PassthruMatch.new(e) }
+				return
+			end
+
 			pattern = @pattern.to_matchable
 			@entries.each do |entry|
 				match = pattern.matches?(entry)
