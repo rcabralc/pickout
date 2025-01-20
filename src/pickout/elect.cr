@@ -6,11 +6,11 @@ module Pickout
 	end
 
 	ScorePoints = {
-		big_word_start: 50,
-		consecutive: 50,
+		big_word_start: 20,
+		consecutive: 30,
 		regular: 1,
-		uppercase: 20,
-		word_start: 10
+		uppercase: 10,
+		word_start: 15
 	}
 
 	class Entry
@@ -52,34 +52,37 @@ module Pickout
 		@entries : Array(Entry)
 
 		def initialize(strings : Enumerable(String))
-			@entries = strings.map_with_index { |s, i| Entry.new(i, s) }
+			initialize(strings.map_with_index { |s, i| Entry.new(i, s) })
 		end
 
 		def initialize(@entries : Array(Entry))
+			@size = @entries.size
 		end
 
 		delegate each, to: @entries
 
 		def size : Int32
-			@entries.size
+			@size
 		end
 	end
 
-	alias MatchKey = Tuple(Int32, Int32, Int32)
+	alias MatchKey = Int64
 
 	class Match
-		getter entry
+		getter entry, key
 		protected getter indices, score
 
 		@entry : Entry
 		@indices = Slice(Int32).empty
-		@key : MatchKey?
+		@key : MatchKey
 		@score = 0
 
 		def initialize(@entry)
+			@key = @entry.size.to_i64
 		end
 
 		def initialize(@entry, @score, @indices)
+			@key = @entry.size.to_i64 - @score
 		end
 
 		def merge(other)
@@ -113,22 +116,6 @@ module Pickout
 			end
 
 			partitions
-		end
-
-		def key
-			@key ||= {-@score, @entry.size, @entry.index}
-		end
-	end
-
-	class PassthruMatch < Match
-		# These matches are used exclusively when there is no pattern to match
-		# entries against to. This allows us to take a shortcut when sorting
-		# matches by key.
-		def initialize(@entry)
-		end
-
-		def key
-			@key ||= {@entry.size, @entry.index, 0}
 		end
 	end
 
@@ -428,7 +415,7 @@ module Pickout
 		end
 
 		def matches?(entry)
-			return PassthruMatch.new(entry) if @patterns.empty?
+			return Match.new(entry) if @patterns.empty?
 			return @patterns.first.matches?(entry) if @patterns.size == 1
 
 			@patterns.map do |pattern|
@@ -465,7 +452,7 @@ module Pickout
 		{% if flag?(:preview_mt) %}
 		def each
 			if @pattern.empty?
-				@entries.each { |e| yield PassthruMatch.new(e) }
+				@entries.each { |e| yield Match.new(e) }
 				return
 			end
 
@@ -506,7 +493,7 @@ module Pickout
 		{% else %}
 		def each
 			if @pattern.empty?
-				@entries.each { |e| yield PassthruMatch.new(e) }
+				@entries.each { |e| yield Match.new(e) }
 				return
 			end
 
@@ -523,14 +510,16 @@ module Pickout
 		include Enumerable(Match)
 
 		def initialize(matches : Enumerable(Match), @limit : Int32)
-			@sorted = Array(Match).new(@limit)
+			@reversed = Array(Match).new(@limit)
 			heap = MaxHeap(Match, MatchKey).new(@limit, matches, &.key)
-			while match = heap.pop
-				@sorted.unshift(match)
+			heap.consume do |match|
+				@reversed.push(match)
 			end
 		end
 
-		delegate each, to: @sorted
+		def each
+			@reversed.reverse_each { |match| yield match }
+		end
 	end
 
 	class MaxHeap(T, K)
@@ -541,13 +530,13 @@ module Pickout
 			build if @size < @capacity
 		end
 
-		def pop
-			return if @size.zero?
-
-			root = @items[0]
-			@items[0] = @items[@size -= 1]
-			heapify(0)
-			root[0]
+		def consume
+			(@size - 1).downto(0) do
+				root = @items[0]
+				@items[0] = @items[@size -= 1]
+				heapify(0)
+				yield root[0]
+			end
 		end
 
 		private def push(item)
