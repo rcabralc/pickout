@@ -195,7 +195,7 @@ title=${title:-"Select file${title_suffix}…"}
 while true; do
 	root="${root%/}"
 	cd "$root"
-	fdcmd="fd . --type file --follow --hidden --no-ignore ${excludes[*]}"
+	fdcmd="fd . --type file --follow --hidden --no-ignore-vcs ${excludes[*]}"
 	if [ -z "$target" ]; then
 		item=$(
 			pickout \
