@@ -459,7 +459,7 @@ module Pickout
 			size = @entries.size
 			return if size.zero?
 
-			concurrency = (System.cpu_count.to_i32 - 2).clamp(1, size)
+			concurrency = (ENV.fetch("CRYSTAL_WORKERS", System.cpu_count.to_i32).to_i - 2).clamp(1, size)
 			entries_channel = Channel(Entry).new(50_000)
 			matches_channel = Channel(Match).new(size)
 			active_workers = Atomic.new(concurrency)
