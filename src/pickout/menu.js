@@ -447,7 +447,7 @@
 			keyHandlers['Control-Enter'] = swallow(() => menu.accept_input(input.get()))
 			keyHandlers['Control- '] = keyHandlers.Escape
 			keyHandlers['Control-d'] = keyHandlers.Escape
-			keyHandlers['Control-h'] = swallow(() => home && filter(input.set(home)))
+			keyHandlers['Control-h'] = swallow(() => filter(input.set(home)))
 			keyHandlers['Control-j'] = swallow(menu.select_next)
 			keyHandlers['Control-k'] = swallow(menu.select_prev)
 			keyHandlers['Control-m'] = swallow(() => {
