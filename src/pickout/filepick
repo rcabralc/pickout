@@ -5,6 +5,7 @@ set -e
 usage () {
 	echo "Usage:"
 	echo "	filepick [--exclude=<pattern> ...]"
+	echo "	         [--geometry=<geometry>]"
 	echo "	         [--home=<home>]"
 	echo "	         [--input=<input>]"
 	echo "	         [--loop|--dir-opener=<opener>]"
