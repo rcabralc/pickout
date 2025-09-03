@@ -157,11 +157,14 @@ class MainView(QWebEngineView):
 		self.loadFinished.connect(lambda: page.runJavaScript(frontend_source))
 
 		self.setWindowFlags(Qt.WindowStaysOnTopHint)
+		font = QApplication.font()
+		font_size = font.pixelSize()
+		if font_size == -1:
+			dpi = self.screen().logicalDotsPerInch()
+			font_size = round(dpi * font.pointSizeF() / 72.0)
 		settings = page.settings()
-		settings.setFontFamily(
-			QWebEngineSettings.StandardFont,
-			QApplication.font().family()
-		)
+		settings.setFontFamily(QWebEngineSettings.StandardFont, font.family())
+		settings.setFontSize(QWebEngineSettings.DefaultFontSize, font_size)
 
 	def changeEvent(self, event):
 		if event.type() == QEvent.ActivationChange and not self._activated:
