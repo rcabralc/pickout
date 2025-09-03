@@ -331,7 +331,7 @@ module Pickout
 			return Match.new(entry) unless (re = @re)
 			return unless (match = re.match(entry.value))
 
-			size = match.end - match.begin + 1
+			size = match.end - match.begin
 			return Match.new(entry) if size.zero?
 
 			Match.new(entry, -size, Slice(Int32).new(size, read_only: true) { |i| match.begin + i })
