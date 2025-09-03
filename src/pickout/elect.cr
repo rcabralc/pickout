@@ -307,8 +307,6 @@ module Pickout
 		end
 
 		def initialize(value : String, ignore_bad_patterns = true)
-			raise ArgumentError.new("empty value") if value.empty?
-
 			@value = value.unicode_normalize(:nfc)
 			@re = nil
 
