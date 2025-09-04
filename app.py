@@ -78,11 +78,12 @@ class Filter(QObject):
 		self._stop()
 		if self._source is None:
 			stdin = sys.stdin
+			source = ''
 		else:
-			self._command = Popen(self._source, stdout=PIPE, shell=True)
-			stdin = self._command.stdout
+			stdin = None
+			source = self._source
 		self._process = Popen(
-			[self._path, str(self._limit), '50000'],
+			[self._path, str(self._limit), source],
 			stdin=stdin,
 			stdout=PIPE,
 			stderr=sys.stderr

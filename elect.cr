@@ -46,26 +46,6 @@ module Pickout
 		end
 	end
 
-	struct Entries
-		include Enumerable(Entry)
-
-		@entries : Array(Entry)
-
-		def initialize(strings : Enumerable(String))
-			initialize(strings.map_with_index { |s, i| Entry.new(i, s) })
-		end
-
-		def initialize(@entries : Array(Entry))
-			@size = @entries.size
-		end
-
-		delegate each, to: @entries
-
-		def size : Int32
-			@size
-		end
-	end
-
 	alias MatchKey = Int64
 
 	class Match
@@ -92,18 +72,22 @@ module Pickout
 			Match.new(@entry, @score + other.score, indices)
 		end
 
+		alias Partition = NamedTuple(unmatched: String, matched: String)
+
 		def partitions
+			return [{unmatched: @entry.value, matched: ""}] if indices.empty?
+
 			value = @entry.value
 
-			chunks = indices.reduce([Slice[0, -1]]) do |chunks, index|
+			chunks = indices.reduce([] of Slice(Int32)) do |chunks, index|
+				next chunks << Slice[index, index] if chunks.empty?
 				next chunks << Slice[index, index] if chunks.last[1] != index - 1
 
 				chunks.last[1] = index
 				chunks
 			end
 
-			chunks.shift if chunks[0][1] == -1
-			partitions = [] of NamedTuple(unmatched: String, matched: String)
+			partitions = [] of Partition
 			next_start = chunks.reduce(0) do |next_start, chunk|
 				matched = value[chunk[0]..chunk[1]]
 				unmatched = value[next_start, chunk[0] - next_start]
@@ -157,9 +141,7 @@ module Pickout
 	end
 
 	class FuzzyPattern
-		getter value
-
-	    @value : String
+		getter size : Int32, value : String
 
 		def self.build(value, **options)
 			return unless value.starts_with?("@*")
@@ -170,10 +152,10 @@ module Pickout
 		def initialize(value : String)
 			raise ArgumentError.new("empty value") if value.empty?
 
-		    @value = value.unicode_normalize(:nfc)
+			@value = value.unicode_normalize(:nfc)
+			@size = @value.size
 		end
 
-		delegate size, to: @value
 		def_hash @value
 
 		def ==(other : FuzzyPattern)
@@ -192,13 +174,16 @@ module Pickout
 		end
 	end
 
-	class MatchableFuzzyPattern
+	abstract class MatchablePattern
+		abstract def matches?(entry : Entry) : Match | Nil
+	end
+
+	class MatchableFuzzyPattern < MatchablePattern
 		def initialize(@pattern : FuzzyPattern, @workspace : FuzzyWorkspace)
+			@size = @pattern.size
 		end
 
-		delegate size, to: @pattern
-
-		def matches?(entry)
+		def matches?(entry) : Match | Nil
 			entry_value = entry.value
 			v_size = entry.size
 			value = @pattern.value
@@ -207,17 +192,17 @@ module Pickout
 			first_indices = @workspace.first_indices
 			best_indices = @workspace.best_indices
 
-			r_limit = v_size &- size
+			r_limit = v_size &- @size
 			l_limit = 0
 			min_score = best_score = MIN_SCORE
 
-			value.each_char_with_index do |p_char, pi|
+			value.each_char_with_index() do |p_char, pi|
 				prev_score = best_score = min_score
 
 				entry_value.each_char_with_index do |v_char, vi|
 					next if vi < l_limit || vi > r_limit
-					score = 0
 
+					score = 0
 					if compare_chars(p_char, v_char)
 						# Record start index and bump l_limit.
 						first_indices[pi] = l_limit = vi if best_score == min_score
@@ -225,7 +210,7 @@ module Pickout
 						if p_char.uppercase? && v_char.uppercase?
 							score &+= ScorePoints[:uppercase]
 						end
-						unless pi.zero?
+						if pi.positive?
 							prev_pi = pi &- 1
 							prev_vi = vi &- 1
 							score &+= scores[prev_pi, prev_vi]
@@ -239,7 +224,7 @@ module Pickout
 					end
 
 					ending_scores[pi, vi] = score
-					score = prev_score - 1 if prev_score - 1 > score
+					score = prev_score &- 1 if prev_score &- 1 > score
 					scores[pi, vi] = prev_score = score
 					if score >= best_score # >= because we want rightmost best.
 						best_indices[pi] = vi
@@ -255,11 +240,11 @@ module Pickout
 			end
 
 			match_score = best_score
-			indices = Pointer(Int32).malloc(size)
-			best_idx = best_indices[size &- 1]
-			indices[size &- 1] = best_idx
+			indices = Pointer(Int32).malloc(@size)
+			best_idx = best_indices[@size &- 1]
+			indices[@size &- 1] = best_idx
 
-			(size &- 2).downto(0) do |pi|
+			(@size &- 2).downto(0) do |pi|
 				vi = best_idx &- 1
 
 				# Prefer to show a consecutive match if the score ending here is the same as if it were not a match. The final resulting score would have been the same.
@@ -284,7 +269,7 @@ module Pickout
 				indices[pi] = best_idx
 			end
 
-			indices = Slice.new(indices, size, read_only: true)
+			indices = Slice.new(indices, @size, read_only: true)
 			Match.new(entry, match_score, indices)
 		end
 
@@ -295,10 +280,10 @@ module Pickout
 		end
 	end
 
-	class RegexPattern
+	class RegexPattern < MatchablePattern
 		protected getter value
 
-	    @value : String
+		@value : String
 
 		def self.build(re : String, ignore_bad_patterns = true)
 			return unless re.starts_with?("@/")
@@ -327,7 +312,7 @@ module Pickout
 			false
 		end
 
-		def matches?(entry)
+		def matches?(entry) : Match | Nil
 			return Match.new(entry) unless (re = @re)
 			return unless (match = re.match(entry.value))
 
@@ -339,9 +324,8 @@ module Pickout
 	end
 
 	alias SinglePattern = FuzzyPattern | RegexPattern
-	alias MatchableSinglePattern = MatchableFuzzyPattern | RegexPattern
 
-	struct CompositePattern
+	class CompositePattern
 		protected getter patterns
 
 		def self.from_strings(strings : Array(String))
@@ -369,8 +353,10 @@ module Pickout
 		delegate empty?, to: @patterns
 		def_hash @patterns
 
-		def to_matchable
-			patterns = [] of MatchableSinglePattern
+		def to_matchable : MatchablePattern
+			return MatchableEmptyPattern.new if empty?
+
+			patterns = [] of MatchablePattern
 
 			fuzzy_width = 0
 			@patterns.each do |pattern|
@@ -389,10 +375,10 @@ module Pickout
 			else
 				# No fuzzy pattern (since no pattern is empty)
 				@patterns.each { |p| patterns << p unless p.is_a?(FuzzyPattern) }
-				MatchableCompositePattern.new(patterns)
 			end
 
-			MatchableCompositePattern.new(patterns)
+			slice = Slice.new(patterns.to_unsafe, patterns.size, read_only: true)
+			MatchableCompositePattern.new(slice)
 		end
 
 		def includes?(other)
@@ -408,111 +394,149 @@ module Pickout
 		end
 	end
 
-	struct MatchableCompositePattern
-		def initialize(@patterns : Array(MatchableSinglePattern))
-		end
-
-		def matches?(entry)
-			return Match.new(entry) if @patterns.empty?
-			return @patterns.first.matches?(entry) if @patterns.size == 1
-
-			@patterns.map do |pattern|
-				pattern.matches?(entry) || return
-			end.reduce { |acc, m| acc.merge(m) }
+	class MatchableEmptyPattern < MatchablePattern
+		def matches?(entry : Entry) : Match
+			Match.new(entry)
 		end
 	end
 
-	class FilteredMatches
-		include Enumerable(Match)
-
-		def initialize(@entries : Entries, @pattern : CompositePattern)
+	class MatchableCompositePattern < MatchablePattern
+		def initialize(@patterns : Slice(MatchablePattern))
 		end
 
-		def initialize(entries : Entries, strings : Array(String))
-			initialize(entries, CompositePattern.from_strings(strings))
+		def matches?(entry : Entry) : Match | Nil
+			@patterns.map do |pattern|
+				pattern.matches?(entry) || return
+			end.reduce? { |acc, m| acc.merge(m) } || Match.new(entry)
 		end
+	end
 
-		def initialize(entries : Entries, pattern : String)
-			initialize(entries, CompositePattern.from_strings([pattern]))
-		end
-
-		def initialize(strings : Array(String), pattern : String)
-			initialize(
-				Entries.new(strings),
-				CompositePattern.from_strings([pattern])
-			)
-		end
-
-		def sort
-			to_a.sort_by!(&.key)
-		end
-
-		{% if flag?(:preview_mt) %}
-		def each
-			if @pattern.empty?
-				@entries.each { |e| yield Match.new(e) }
-				return
+	module FilteredMatches
+		def self.new(entries : Iterator(Entry), strings : Array(String))
+			pattern = CompositePattern.from_strings(strings)
+			if pattern.empty?
+				EmptyImpl.new(entries, pattern)
+			else
+				Impl.new(entries, pattern)
 			end
+		end
 
-			size = @entries.size
-			return if size.zero?
-
-			concurrency = (ENV.fetch("CRYSTAL_WORKERS", System.cpu_count.to_i32).to_i - 2).clamp(1, size)
-			entries_channel = Channel(Entry).new(50_000)
-			matches_channel = Channel(Match).new(size)
-			active_workers = Atomic.new(concurrency)
-
-			spawn do
-				@entries.each { |entry| entries_channel.send(entry) }
-				entries_channel.close
+		def self.new(entries : Iterator(Entry), pattern : String)
+			pattern = CompositePattern.from_strings([pattern])
+			if pattern.empty?
+				EmptyImpl.new(entries, pattern)
+			else
+				Impl.new(entries, pattern)
 			end
+		end
 
-			concurrency.times do
+		def self.new(entries : Array(Entry), pattern : String)
+			pattern = CompositePattern.from_strings([pattern])
+			if pattern.empty?
+				EmptyImpl.new(entries.each, pattern)
+			else
+				Impl.new(entries.each, pattern)
+			end
+		end
+
+		def self.new(strings : Enumerable(String), pattern : String)
+			pattern = CompositePattern.from_strings([pattern])
+			entries = strings.map_with_index { |s, i| Entry.new(i, s) }.each
+			if pattern.empty?
+				EmptyImpl.new(entries, pattern)
+			else
+				Impl.new(entries, pattern)
+			end
+		end
+
+		def self.new(entries : Iterator(Entry), pattern : CompositePattern)
+			if pattern.empty?
+				EmptyImpl.new(entries, pattern)
+			else
+				Impl.new(entries, pattern)
+			end
+		end
+
+		class Impl
+			include Iterator(Match)
+
+			def initialize(entries : Iterator(Entry), @pattern : CompositePattern)
+				@iterator = entries
+				@matches_channel = matches_channel = Channel(Match).new(50_000)
+				entries_channel = Channel(Entry).new(50_000)
+				concurrency = self.concurrency
+				active_workers = Atomic.new(concurrency)
+
 				spawn do
-					pattern = @pattern.to_matchable
-					loop do
-						entry = entries_channel.receive?
-						break unless entry
+					@iterator.each { |entry| entries_channel.send(entry) }
+					entries_channel.close
+				end
 
-						match = pattern.matches?(entry)
-						matches_channel.send(match) if match
+				concurrency.times do
+					spawn do
+						pat = @pattern.to_matchable
+						loop do
+							entry = entries_channel.receive?
+							break unless entry
+
+							match = pat.matches?(entry)
+							matches_channel.send(match) if match
+						end
+						matches_channel.close if active_workers.sub(1) == 1
 					end
-					matches_channel.close if active_workers.sub(1) == 1
 				end
 			end
 
-			loop do
-				match = matches_channel.receive?
-				break unless match
-
-				yield match
-			end
-		end
-		{% else %}
-		def each
-			if @pattern.empty?
-				@entries.each { |e| yield Match.new(e) }
-				return
+			def sort
+				to_a.sort_by!(&.key)
 			end
 
-			pattern = @pattern.to_matchable
-			@entries.each do |entry|
-				match = pattern.matches?(entry)
-				yield match if match
+			def next
+				@matches_channel.receive? || stop
+			end
+
+			{% if flag?(:preview_mt) %}
+				private def concurrency
+					(ENV.fetch("CRYSTAL_WORKERS", System.cpu_count.to_i32).to_i - 2).clamp(1, 64)
+				end
+			{% else %}
+				private def concurrency
+					1
+				end
+			{% end %}
+		end
+
+		class EmptyImpl < Impl
+			include Iterator::IteratorWrapper
+
+			def initialize(entries : Iterator(Entry), @pattern : CompositePattern)
+				@iterator = entries
+				@matches_channel = Channel(Match).new
+			end
+
+			def next
+				Match.new(wrapped_next)
 			end
 		end
-		{% end %}
 	end
 
 	class Ranking
+		getter entries
+
 		include Enumerable(Match)
 
-		def initialize(matches : Enumerable(Match), @limit : Int32)
-			@reversed = Array(Match).new(@limit)
-			heap = MaxHeap(Match, MatchKey).new(@limit, matches, &.key)
-			heap.consume do |match|
-				@reversed.push(match)
+		@entries : Array(Entry)
+		@reversed : Slice(Match)
+
+		def initialize(matches : Iterator(Match), @limit : Int32)
+			heap = MaxHeap(Match, MatchKey).new(@limit, &.key)
+			entries = [] of Entry
+			matches.each do |match|
+				heap.push(match)
+				entries.push(match.entry)
 			end
+			@entries = entries
+			@reversed = heap.to_slice!
 		end
 
 		def each
@@ -521,23 +545,12 @@ module Pickout
 	end
 
 	class MaxHeap(T, K)
-		def initialize(@capacity : Int32, items : Enumerable(T), &@key : T -> K)
+		def initialize(@capacity : Int32, &@key : T -> K)
 			@size = 0
 			@items = Pointer(Tuple(T, K)).malloc(@capacity)
-			items.each { |item| push(item) }
-			build if @size < @capacity
 		end
 
-		def consume
-			(@size - 1).downto(0) do
-				root = @items[0]
-				@items[0] = @items[@size -= 1]
-				heapify(0)
-				yield root[0]
-			end
-		end
-
-		private def push(item)
+		def push(item)
 			key = @key.call(item)
 			if @size < @capacity
 				@items[@size] = {item, key}
@@ -546,6 +559,16 @@ module Pickout
 			elsif key < @items[0][1]
 				@items[0] = {item, key}
 				heapify(0)
+			end
+		end
+
+		def to_slice! : Slice(T)
+			build if @size < @capacity
+			Slice(T).new(@size, read_only: true) do
+				root = @items[0]
+				@items[0] = @items[@size -= 1]
+				heapify(0)
+				root[0]
 			end
 		end
 

@@ -1,9 +1,4 @@
-bin/
 build/
 history.json
-include/
-lib/
-lib64
 __pycache__/
-pyenv.cfg
-src/pickout/filter
+filter

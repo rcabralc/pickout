@@ -21,7 +21,7 @@ fail () {
 	exit 1
 }
 
-editor=${FILEPICK_EDITOR:-${VISUAL:-${EDITOR}}}
+editor=${FILEPICK_EDITOR:-${VISUAL:-${EDITOR:-vi}}}
 excludes=()
 while [ "$#" -gt 0 ]; do
 	case $1 in
@@ -77,9 +77,9 @@ while [ "$#" -gt 0 ]; do
 			echo
 			echo "Environment variables:"
 			echo "	FILEPICK_EDITOR, VISUAL, EDITOR"
-			echo "	                 the editor to use to open text files."
+			echo "	                 the editor to use to open new files."
 			echo "	FILEPICK_TERM, TERMCMD"
-			echo "	                 the terminal in which to use your editor (defaults to xterm)."
+			echo "	                 the terminal in which to use the editor (defaults to xterm)."
 			exit 0
 			;;
 
@@ -236,27 +236,22 @@ while true; do
 		exit 0
 	fi
 
-	# mode == "open"
+	# mode is "open"
 
 	# If this is a directory, open it and quit.
 	[ -d "$item" ] && exec $dir_opener "$item"
 
-	if [ -f "$item" ]; then
-		file -bik "$item" | grep -q text/plain && opener="$editor" || opener=xdg-open
-	else
-		# Not a file or a directory. Attempt to edit it (the user's editor will
-		# likely create a new file, possibly creating any necessary intermediary
-		# directory).
-		opener="$editor"
-	fi
+	# If the item is an existing file, delegate it to xdg-open and quit.
+	[ -f "$item" ] && exec xdg-open "$item"
 
-	# xdg-open doesn't need a terminal, just fire it and quit.
-	[ "$opener" = xdg-open ] && exec xdg-open "$item"
+	# Not a file or a directory. Attempt to edit it (the user's editor will
+	# likely create a new file, possibly creating any necessary intermediary
+	# directory).
 
-	# If attached to a terminal, just open the item from it and quit.
+	# If attached to a terminal, just edit the item from it and quit.
 	[ -t 0 ] && exec $editor -- "$item"
 
-	# Otherwise, spawn a new terminal and then open the item.
+	# Otherwise, spawn a new terminal and then edit the item.
 	term="${FILEPICK_TERM:-${TERMCMD:-xterm}} -e"
 	EDITOR="$editor" setsid $term $editor -- "$item" &
 	exit 0

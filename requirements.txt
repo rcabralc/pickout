@@ -1,3 +1,0 @@
-docopt
-pathspec
-PySide6

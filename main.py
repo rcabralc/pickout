@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 """Pickout.
 
 Usage:
@@ -136,10 +136,11 @@ import json
 import sys
 
 
-def main(args):
+def main():
+	args = docopt(__doc__)
 	logger = streamlogger(sys.stderr if args['--debug'] else None)
 
-	return run(
+	sys.exit(run(
 		logger=logger,
 		accept_input=args['--accept-input'],
 		big_word_delimiters=args['--big-word-delimiters'],
@@ -151,7 +152,7 @@ def main(args):
 		limit=args['--limit'],
 		source=args['--source'],
 		word_delimiters=args['--word-delimiters']
-	)
+	))
 
 
 class streamlogger:
@@ -165,4 +166,4 @@ class streamlogger:
 
 
 if __name__ == '__main__':
-	sys.exit(main(docopt(__doc__)))
+	main()

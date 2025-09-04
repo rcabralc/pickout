@@ -1,7 +1,3 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [project]
 name = "pickout"
 version = "0.0.1"
@@ -10,11 +6,10 @@ authors = [
 ]
 description = "A heavy dmenu replacement"
 readme = "README.md"
-requires-python = ">=3.11"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: The Unlicense (Unlicense)",
-    "Operating System :: POSIX :: Linux",
+requires-python = ">=3.13"
+dependencies = [
+    "docopt>=0.6.2",
+    "pyside6>=6.9.2",
 ]
 
 [project.urls]

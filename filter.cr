@@ -3,23 +3,30 @@ require "json"
 require "socket"
 
 module Pickout
-	struct Entries
-		def self.read(initial_capacity)
-			i = 0
-			entries = Array(Entry).new(initial_capacity)
-			while (line = STDIN.gets(chomp: true))
-				entries << Entry.new(i += 1, line) unless line.empty?
+	class Entries
+		include Iterator(Pickout::Entry)
+
+		@stream : IO::FileDescriptor
+
+		def initialize(@stream)
+			@index = -1
+		end
+
+		def next
+			while (line = @stream.gets(chomp: true))
+				return Entry.new((@index += 1), line) unless line.empty?
 			end
-			Entries.new(entries)
+
+			stop
 		end
 	end
 
 	class Filter
-		def initialize(@entries : Entries, limit : Int32)
-			@cache = Cache(Array(Match)).new(@entries) do |cached_entries, pattern|
-				matches = FilteredMatches.new(cached_entries, pattern).to_a
-				sorted_matches = Ranking.new(matches, limit).to_a
-				{Entries.new(matches.map(&.entry)), sorted_matches}
+		def initialize(entries : Iterator(Entry), limit : Int32)
+			@cache = Cache(Array(Match)).new(entries) do |cached_entries, pattern|
+				matches = FilteredMatches.new(cached_entries, pattern)
+				ranking = Ranking.new(matches, limit)
+				{ranking.entries, ranking.to_a}
 			end
 		end
 
@@ -149,9 +156,16 @@ module Pickout
 			s1
 		end
 	end
-end
 
-if PROGRAM_NAME.ends_with?("filter")
-	entries = Pickout::Entries.read(ARGV.size == 2 ? ARGV[1].to_i : 50_000)
-	Pickout::Filter.new(entries, ARGV[0].to_i).start
+	limit = ARGV[0].to_i
+
+	if ARGV.size == 2 && !ARGV[1].empty?
+		Process.run(ARGV[1], shell: true) do |process|
+			entries = Entries.new(process.output)
+			Filter.new(entries, limit).start
+		end
+	else
+		entries = Entries.new(STDIN)
+		Filter.new(entries, limit).start
+	end
 end
