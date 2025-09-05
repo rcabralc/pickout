@@ -14,7 +14,7 @@ module Pickout
 
 		def next
 			while (line = @stream.gets(chomp: true))
-				return Entry.new((@index += 1), line) unless line.empty?
+				return Entry.new((@index &+= 1), line) unless line.empty?
 			end
 
 			stop

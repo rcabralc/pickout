@@ -530,7 +530,7 @@ module Pickout
 
 		def initialize(matches : Iterator(Match), @limit : Int32)
 			heap = MaxHeap(Match, MatchKey).new(@limit, &.key)
-			entries = [] of Entry
+			entries = Array(Entry).new(50_000)
 			matches.each do |match|
 				heap.push(match)
 				entries.push(match.entry)
