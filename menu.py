@@ -1,4 +1,3 @@
-from itertools import tee
 from PySide6.QtCore import QObject, Signal, Slot
 
 import json
