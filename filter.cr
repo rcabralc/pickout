@@ -4,7 +4,7 @@ require "socket"
 
 module Pickout
 	class Entries
-		include Iterator(Pickout::Entry)
+		include Iterator(Entry)
 
 		@stream : IO::FileDescriptor
 
