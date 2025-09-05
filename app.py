@@ -273,7 +273,7 @@ class Template:
 		code = self._code
 		for key, value in theme.items():
 			code = re.sub(f'{key}: [^;]*;', f'{key}: {value};', code, 1)
-		return code.replace('%(initial-value)s', '')
+		return code
 
 
 class Theme:
