@@ -94,10 +94,10 @@ Key bindings:
     Tab
         Complete.
 
-    CTRL+J
+    Ctrl+J
         Select next entry.
 
-    CTRL+K
+    Ctrl+K
         Select previous entry.
 
     Ctrl+N
