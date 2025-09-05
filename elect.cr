@@ -58,7 +58,7 @@ module Pickout
 		@score = 0
 
 		def initialize(@entry)
-			@key = @entry.size.to_i64
+			@key = 0_i64
 		end
 
 		def initialize(@entry, @score, @indices)
