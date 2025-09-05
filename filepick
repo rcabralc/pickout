@@ -41,13 +41,13 @@ while [ "$#" -gt 0 ]; do
 		-E=*|--exclude=*)
 			exclude="${1#*=}"
 			[ -z "$exclude" ] && fail "--exclude requires argument"
-			excludes+=("--exclude" "$exclude")
+			excludes+=("--exclude" "'$exclude'")
 			;;
 		-E|--exclude)
 			shift
 			exclude="$1"
 			[ -z "$exclude" ] && fail "--exclude requires argument"
-			excludes+=("--exclude" "$exclude")
+			excludes+=("--exclude" "'$exclude'")
 			;;
 
 		-h|--help)
