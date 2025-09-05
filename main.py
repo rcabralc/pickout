@@ -50,7 +50,7 @@ Options:
         Defines an input to be the "home" input (set by pressing Ctrl-H).
 
     -i <input>, --input <input>
-        Use <input> as a initial value.
+        Use <input> as an initial value.
 
     --json-output
         Return the selection as a JSON array.
