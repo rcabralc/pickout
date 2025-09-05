@@ -152,7 +152,7 @@ class MainView(QWebEngineView):
 		self._apply_theme()
 
 		page = self.page()
-		page.setHtml(template.html(self._theme))
+		page.setHtml(template.html(self._theme, menu.prompt))
 		page.setWebChannel(self._channel)
 
 		self.loadFinished.connect(lambda: page.runJavaScript(frontend_source))
@@ -269,11 +269,11 @@ class Template:
 	def __init__(self, code):
 		self._code = code
 
-	def html(self, theme):
+	def html(self, theme, prompt):
 		code = self._code
 		for key, value in theme.items():
 			code = re.sub(f'{key}: [^;]*;', f'{key}: {value};', code, 1)
-		return code
+		return code.replace('%(prompt)s', prompt and f'{prompt} ' or '')
 
 
 class Theme:

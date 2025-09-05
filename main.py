@@ -11,6 +11,7 @@ Usage:
             [--input=<input>]
             [--json-output]
             [--limit=<limit>]
+            [--prompt=<prompt>]
             [--source=<command>]
             [--word-delimiters=<delimiters>]
             [--qwindowgeometry=<geometry>]
@@ -63,6 +64,9 @@ Options:
     --qwindowgeometry <geometry>
     --qwindowtitle <title>
         Qt options.
+
+    -p <prompt>, --prompt <prompt>
+        The prompt string before the ▸ character.
 
     --source <command>
         Use <command> as input entries.
@@ -153,6 +157,7 @@ def main():
 		input=args['--input'],
 		json_output=args['--json-output'],
 		limit=args['--limit'],
+		prompt=args['--prompt'],
 		source=args['--source'],
 		word_delimiters=args['--word-delimiters']
 	))

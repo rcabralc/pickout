@@ -10,6 +10,7 @@ usage () {
 	echo "	         [--input=<input>]"
 	echo "	         [--loop|--dir-opener=<opener>]"
 	echo "	         [--mode=<mode>]"
+	echo "           [--prompt=<prompt>]"
 	echo "	         [--target=<file>]"
 	echo "	         [--title=<title>]"
 	echo "	         [<root>]"
@@ -66,6 +67,8 @@ while [ "$#" -gt 0 ]; do
 			echo "	--input=<input>  pickout option --input."
 			echo "	--loop           directories start a new session, loop until a non-directory is selected/entered."
 			echo "	--mode=<mode>    \"copy\", \"open\" or \"echo\", see below (defaults to \"open\")."
+			echo "  --prompt=<prompt>"
+			echo "                   pickout option --prompt, uses mode by default."
 			echo "  --target=<file>  skip selection menu and use this file as the result."
 			echo "	--title=<title>  pickout option --qwindowtitle (a default one is used if not given)."
 			echo "	<root>           the root directory to select files from (defaults to \$HOME)."
@@ -135,6 +138,19 @@ while [ "$#" -gt 0 ]; do
 			[ -z "$1" ] && fail "--mode requires argument"
 			[ -n "$mode" ] && fail "--mode set multiple times: $mode, $1"
 			mode="$1"
+			;;
+
+		--prompt=*)
+			arg="${1#*=}"
+			[ -z "$arg" ] && fail "--prompt requires argument"
+			[ -n "$prompt" ] && fail "--prompt set multiple times: $prompt, $arg"
+			prompt="$arg"
+			;;
+		--prompt)
+			shift
+			[ -z "$1" ] && fail "--prompt requires argument"
+			[ -n "$prompt" ] && fail "--prompt set multiple times: $prompt, $1"
+			prompt="$1"
 			;;
 
 		--target=*)
@@ -208,7 +224,8 @@ while true; do
 				--qwindowtitle "$title" \
 				--word-delimiters '._-' \
 				--big-word-delimiters '/' \
-				--source "$fdcmd"
+				--source "$fdcmd" \
+				--prompt "${prompt:-$mode}"
 		) || exit 1
 
 		# Treat item as a file/dir with respect to root unless it starts with /

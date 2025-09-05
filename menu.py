@@ -94,6 +94,7 @@ class Menu(QObject):
 			delimiters=[],
 			home_input='',
 			input='',
+			prompt='',
 			**kw
 		):
 		super().__init__()
@@ -107,6 +108,7 @@ class Menu(QObject):
 		self._input = input
 		self._filter = filter
 		self._filter.response.connect(self._update_list)
+		self.prompt = prompt
 
 	@Slot(result=str)
 	def js_ready(self):
