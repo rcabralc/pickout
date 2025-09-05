@@ -127,6 +127,9 @@ Key bindings:
 
     Ctrl+Z/Ctrl-Y
         Undo/redo operations like erase word or erase the whole input.
+
+    Alt+P
+        Switch between fuzzy and regexp patterns.
 """
 
 from app import run
