@@ -71,10 +71,6 @@
 				padding: 0 1rem;
 			}
 
-			.input.history-mode {
-				color: rgb(var(--input-history-color));
-			}
-
 			.input:focus {
 				outline: none;
 			}
@@ -82,6 +78,10 @@
 			#prompt-box .prompt,
 			.counters {
 				white-space: nowrap;
+			}
+
+			#prompt-box .symbol.history-mode {
+				color: rgb(var(--input-history-color));
 			}
 
 			#prompt-box .prompt,
@@ -312,7 +312,7 @@
 
 		<div id="prompt-box">
 			<div class="prompt-line">
-				<span id="prompt" class="prompt">▸</span>
+				<span class="prompt"><span class="symbol">▸</span></span>
 				<span class="input-wrapper">
 					<input type="text" class="input" value="%(initial-value)s" />
 				</span>

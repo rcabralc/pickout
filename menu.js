@@ -344,7 +344,7 @@
 	}
 
 	function buildPromptBox (box) {
-		const prompt = box.getElementsByClassName('prompt')[0]
+		const prompt = box.getElementsByClassName('symbol')[0]
 		return {
 			setHistoryMode () {
 				prompt.classList.replace('insert-mode', 'history-mode')
