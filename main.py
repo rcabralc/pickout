@@ -62,7 +62,7 @@ Options:
 
     --qwindowgeometry <geometry>
     --qwindowtitle <title>
-    	Qt options.
+        Qt options.
 
     --source <command>
         Use <command> as input entries.
