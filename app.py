@@ -291,12 +291,11 @@ class Theme:
 		return {
 			"--background-color": self._rgb(self.background_color),
 			"--color": self._color('WindowText'),
-			"--prompt-color": self._color('WindowText'),
-			"--prompt-over-limit-color": self._color('LinkVisited'),
+			"--counter-over-limit-color": self._color('LinkVisited'),
+			"--entries-selected-background-color": self._color('Highlight'),
+			"--entries-selected-color": self._color('HighlightedText'),
 			"--input-background-color": self._color('AlternateBase'),
 			"--input-history-color": self._color('Link'),
-			"--entries-selected-color": self._color('HighlightedText'),
-			"--entries-selected-background-color": self._color('Highlight'),
 		}
 
 	def _color(self, role_name, disabled=False, inactive=False):

@@ -9,8 +9,7 @@
 			:root {
 				--background-color: 192 192 192;
 				--color: 0 0 0;
-				--prompt-color: 0 0 255;
-				--prompt-over-limit-color: 192 0 192;
+				--counter-over-limit-color: 192 0 192;
 				--input-background-color: 255 255 255;
 				--input-history-color: 0 0 255;
 				--entries-alternate-background-color: var(--background-color);
@@ -53,12 +52,8 @@
 				display: table-row;
 			}
 
-			#prompt-box .prompt {
-				color: rgb(var(--prompt-color));
-			}
-
-			#prompt-box.over-limit .prompt {
-				color: rgb(var(--prompt-over-limit-color));
+			#counters.over-limit .filtered {
+				color: rgb(var(--counter-over-limit-color));
 			}
 
 			#prompt-box.history-mode .input {
@@ -80,18 +75,18 @@
 			}
 
 			#prompt-box .prompt,
-			.counters {
+			#counters {
 				white-space: nowrap;
 			}
 
 			#prompt-box .prompt,
-			.counters {
+			#counters {
 				width: 1px;
 			}
 
 			#prompt-box .prompt,
 			.input-wrapper,
-			.counters {
+			#counters {
 				display: table-cell;
 			}
 
@@ -147,7 +142,8 @@
 			}
 
 			#prompt-box.not-found .input,
-			.counters {
+			#prompt-box .prompt,
+			#counters {
 				color: rgb(var(--color) / 0.6);
 			}
 
@@ -316,7 +312,7 @@
 				<span class="input-wrapper">
 					<input type="text" class="input" />
 				</span>
-				<span class="counters"><!--100/1000--></span>
+				<span id="counters"><span class="filtered"></span>/<span class="total"></span></span>
 			</div>
 		</div>
 

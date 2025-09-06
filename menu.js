@@ -24,7 +24,7 @@
 	}
 
 	ready(function () {
-		const counters = buildCounters(document.querySelector('#prompt-box .counters'))
+		const counters = buildCounters(document.getElementById('counters'))
 		const entries = buildEntries(document.getElementById('entries'), document.getElementById('entries-box'))
 		const input = buildInput(document.querySelector('#prompt-box .input'))
 		const menu = Object.keys(bridge).reduce((menu, method) => {
@@ -50,8 +50,20 @@
 	})
 
 	function buildCounters (el) {
+		const total = el.getElementsByClassName('total')[0]
+		const filtered = el.getElementsByClassName('filtered')[0]
+
 		return {
-			update (filtered, total) { el.innerText = `${filtered}/${total}` }
+			update (filteredCount, totalCount, items) {
+				filtered.innerText = filteredCount
+				total.innerText = totalCount
+
+				if (filteredCount > items.length) {
+					el.classList.add('over-limit')
+				} else {
+					el.classList.remove('over-limit')
+				}
+			}
 		}
 	}
 
@@ -359,12 +371,6 @@
 					box.classList.remove('not-found')
 				} else {
 					box.classList.add('not-found')
-				}
-
-				if (filtered > items.length) {
-					box.classList.add('over-limit')
-				} else {
-					box.classList.remove('over-limit')
 				}
 			}
 		}
