@@ -291,7 +291,7 @@ class Theme:
 		return {
 			"--background-color": self._rgb(self.background_color),
 			"--color": self._color('WindowText'),
-			"--prompt-color": self._color('Link'),
+			"--prompt-color": self._color('WindowText'),
 			"--prompt-over-limit-color": self._color('LinkVisited'),
 			"--input-background-color": self._color('AlternateBase'),
 			"--input-history-color": self._color('Link'),

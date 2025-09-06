@@ -347,11 +347,11 @@
 		const prompt = box.getElementsByClassName('symbol')[0]
 		return {
 			setHistoryMode () {
-				prompt.classList.replace('insert-mode', 'history-mode')
+				box.classList.add('history-mode')
 				prompt.replaceChildren('◂')
 			},
 			setInserMode () {
-				prompt.classList.replace('history-mode', 'insert-mode')
+				box.classList.remove('history-mode')
 				prompt.replaceChildren('▸')
 			},
 			update (filtered, _total, items) {
