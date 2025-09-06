@@ -39,7 +39,7 @@
 
 			#prompt-box {
 				background-color: rgb(var(--input-background-color));
-				font-size: 150%;
+				font-size: 100%;
 				padding: 0.4375rem 1rem;
 			}
 
@@ -64,7 +64,7 @@
 				background-color: transparent;
 				color: inherit;
 				font: inherit;
-				font-size: 100%;
+				font-size: 150%;
 				border: none;
 				line-height: 2.5;
 				padding: 0 1rem;
@@ -142,8 +142,8 @@
 			}
 
 			#prompt-box.not-found .input,
-			#prompt-box .prompt,
-			#counters {
+			#prompt-box .prompt .text,
+			#counters .total {
 				color: rgb(var(--color) / 0.6);
 			}
 
@@ -308,7 +308,7 @@
 
 		<div id="prompt-box">
 			<div class="prompt-line">
-				<span class="prompt">%(prompt)s<span class="symbol">▸</span></span>
+				<span class="prompt"><span class="text">%(prompt)s</span><span class="symbol">▸</span></span>
 				<span class="input-wrapper">
 					<input type="text" class="input" />
 				</span>

@@ -360,11 +360,11 @@
 		return {
 			setHistoryMode () {
 				box.classList.add('history-mode')
-				prompt.replaceChildren('◂')
+				prompt.replaceChildren('❮')
 			},
 			setInserMode () {
 				box.classList.remove('history-mode')
-				prompt.replaceChildren('▸')
+				prompt.replaceChildren('❯')
 			},
 			update (filtered, _total, items) {
 				if (items.length) {
