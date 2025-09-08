@@ -156,21 +156,13 @@ class MainView(QWebEngineView):
 		page.setWebChannel(self._channel)
 
 		self.loadFinished.connect(lambda: page.runJavaScript(frontend_source))
-
 		self.setWindowFlags(Qt.WindowStaysOnTopHint)
-		font = QApplication.font()
-		font_size = font.pixelSize()
-		if font_size == -1:
-			dpi = self.screen().logicalDotsPerInch()
-			font_size = round(dpi * font.pointSizeF() / 72.0)
-		settings = page.settings()
-		settings.setFontFamily(QWebEngineSettings.StandardFont, font.family())
-		settings.setFontSize(QWebEngineSettings.DefaultFontSize, font_size)
 
 	def changeEvent(self, event):
-		if event.type() == QEvent.ActivationChange and not self._activated:
+		type = event.type()
+		if type == QEvent.ActivationChange and not self._activated:
 			self._activated = True
-		if event.type() == QEvent.PaletteChange:
+		if type in [QEvent.PaletteChange, QEvent.FontChange]:
 			self._apply_theme()
 		return super().changeEvent(event)
 
@@ -181,9 +173,21 @@ class MainView(QWebEngineView):
 
 	def _apply_theme(self):
 		self._theme = theme = Theme(self.palette())
+
 		if self._activated:
 			self._menu.themed.emit([[k, v] for k, v in theme.items()])
-		self.page().setBackgroundColor(theme.background_color)
+
+		page = self.page()
+		page.setBackgroundColor(theme.background_color)
+
+		font = QApplication.font()
+		font_size = font.pixelSize()
+		if font_size == -1:
+			dpi = self.screen().logicalDotsPerInch()
+			font_size = round(dpi * font.pointSizeF() / 72.0)
+		settings = page.settings()
+		settings.setFontFamily(QWebEngineSettings.StandardFont, font.family())
+		settings.setFontSize(QWebEngineSettings.DefaultFontSize, font_size)
 
 
 class Picker:
