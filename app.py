@@ -295,22 +295,14 @@ class Theme:
 		return {
 			"--background-color": self._rgb(self.background_color),
 			"--color": self._color('WindowText'),
-			"--counter-over-limit-color": self._color('LinkVisited'),
 			"--entries-selected-background-color": self._color('Highlight'),
 			"--entries-selected-color": self._color('HighlightedText'),
 			"--input-background-color": self._color('AlternateBase'),
-			"--input-history-color": self._color('Link'),
 		}
 
 	def _color(self, role_name, disabled=False, inactive=False):
 		role = getattr(QPalette, role_name)
-		if disabled:
-			color = self._palette.color(QPalette.Disabled, role)
-		elif inactive:
-			color = self._palette.color(QPalette.Inactive, role)
-		else:
-			color = self._palette.color(QPalette.Active, role)
-		return self._rgb(color)
+		return self._rgb(self._palette.color(QPalette.Active, role))
 
 	def _rgb(self, color):
 		return "%d %d %d" % (color.red(), color.green(), color.blue())

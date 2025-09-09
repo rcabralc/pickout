@@ -9,9 +9,7 @@
 			:root {
 				--background-color: 192 192 192;
 				--color: 0 0 0;
-				--counter-over-limit-color: 192 0 192;
 				--input-background-color: 255 255 255;
-				--input-history-color: 0 0 255;
 				--entries-alternate-background-color: var(--background-color);
 				--entries-selected-color: 255 255 255;
 				--entries-selected-background-color: 0 0 128;
@@ -28,13 +26,11 @@
 
 			html {
 				background-color: rgb(var(--background-color));
-				font-feature-settings: "kern" on, "liga" on, "clig" on, "onum" on;
 				font-kerning: normal;
-				font-variant: common-ligatures oldstyle-nums;
 				font-size: 125%;
 				line-height: 1.5;
-				text-rendering: optimizeLegibility;
 				user-select: none;
+				text-underline-offset: 0.2em;
 			}
 
 			#prompt-box {
@@ -52,21 +48,12 @@
 				display: table-row;
 			}
 
-			#counters.over-limit .filtered {
-				color: rgb(var(--counter-over-limit-color));
-			}
-
-			#prompt-box.history-mode .input {
-				color: rgb(var(--input-history-color));
-			}
-
 			.input {
 				background-color: transparent;
 				color: inherit;
 				font: inherit;
-				font-size: 150%;
 				border: none;
-				line-height: 2.5;
+				line-height: 3.5;
 				padding: 0 1rem;
 			}
 
@@ -143,12 +130,13 @@
 
 			#prompt-box.not-found .input,
 			#prompt-box .prompt .text,
-			#counters .total {
+			#counters.over-limit .filtered {
 				color: rgb(var(--color) / 0.6);
 			}
 
 			html,
-			#entries tr {
+			#entries tr,
+			#counters .total {
 				color: rgb(var(--color));
 			}
 
@@ -192,6 +180,10 @@
 
 			#entries tr .match {
 				font-weight: bold;
+			}
+
+			#prompt-box.history-mode .input,
+			#entries tr .match {
 				text-decoration: underline;
 			}
 
