@@ -1,34 +1,47 @@
 require "./elect"
+require "json"
 
 module Pickout
+	alias EntryData = Hash(String, JSON::Any)
+
+	class FullEntry
+		getter entry, data
+
+		def initialize(index : Int32, value : String, @data : EntryData = EntryData.new)
+			@entry = Entry.new(index, value)
+		end
+	end
+
 	class Cache(T)
 		class CachedEntries
 			include Iterator(Entry)
 
-			@it : Iterator(Entry)
+			@it : Iterator(FullEntry)
+			@data : Hash(Entry, EntryData) | Nil
 
 			def initialize(@it)
 				@consumed = false
-				@cache = Array(Entry).new(50_000)
+				@cache = Array(FullEntry).new(50_000)
+				@data = nil
 			end
 
 			def each
 				if @consumed
-					@cache.each
+					@cache.each.map(&.entry)
 				else
 					super
 				end
 			end
 
 			def next
-				entry = @it.next
-				if entry.is_a?(Iterator::Stop)
+				full_entry = @it.next
+				if full_entry.is_a?(Iterator::Stop)
 					@consumed = true
 					return stop
 				end
 
-				@cache << entry
-				entry
+				@cache << full_entry
+				full_entry.entry
 			end
 
 			def size
@@ -36,35 +49,53 @@ module Pickout
 				@cache.size
 			end
 
+			def data_for_entry(entry)
+				data = @data
+
+				if data.nil?
+					consume!
+					data = {} of Entry => EntryData
+					@cache.each do |full_entry|
+						data[full_entry.entry] = full_entry.data
+					end
+					@data = data
+				end
+
+				data[entry]
+			end
+
 			private def consume!
 				return if @consumed
 
 				while true
-					entry = self.next
-					break if entry.is_a?(Iterator::Stop)
+					break if self.next.is_a?(Iterator::Stop)
 				end
 			end
 		end
 
 		def initialize(
-			entries : Iterator(Entry),
+			full_entries : Iterator(FullEntry),
 			&@refilter : Iterator(Entry), CompositePattern -> Tuple(Array(Entry), T)
 		)
-			@entries = CachedEntries.new(entries)
+			@cached_entries = CachedEntries.new(full_entries)
 			@cache = {} of CompositePattern => Hit(T)
 		end
 
 		def filter(input : Array(String))
 			key = CompositePattern.from_strings(input)
 			hit = find(key)
-			return update(key, @refilter.call(@entries.each, key)) unless hit
+			return update(key, @refilter.call(@cached_entries.each, key)) unless hit
 			return hit.result if hit.key == key
 
 			update(key, @refilter.call(hit.entries.each, key))
 		end
 
 		def size
-			@entries.size
+			@cached_entries.size
+		end
+
+		def data_for_entry(entry)
+			@cached_entries.data_for_entry(entry)
 		end
 
 		private def find(key)

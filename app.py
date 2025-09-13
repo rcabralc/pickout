@@ -15,7 +15,6 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication
 from subprocess import PIPE, Popen
 
-import io
 import json
 import os
 import re
@@ -33,7 +32,7 @@ class Filter(QObject):
 	_process = _socket = _command = None
 	_connection_retries = 100
 
-	def __init__(self, logger, thread, source, limit):
+	def __init__(self, logger, thread, source, limit, json_input):
 		super().__init__()
 
 		self.moveToThread(thread)
@@ -41,6 +40,7 @@ class Filter(QObject):
 		self._logger = logger
 		self._source = source
 		self._limit = limit
+		self._json_input = json_input
 		self._requests = []
 		self.refreshed.connect(self._refresh)
 		self.requested.connect(self._request)
@@ -76,14 +76,20 @@ class Filter(QObject):
 	@Slot()
 	def _start(self):
 		self._stop()
+
+		args = [self._path, '--limit', str(self._limit)]
+
 		if self._source is None:
 			stdin = sys.stdin
-			source = ''
 		else:
 			stdin = None
-			source = self._source
+			args.extend(['--source', self._source])
+
+		if self._json_input:
+			args.append('--json-input')
+
 		self._process = Popen(
-			[self._path, str(self._limit), source],
+			args,
 			stdin=stdin,
 			stdout=PIPE,
 			stderr=sys.stderr
@@ -198,10 +204,12 @@ class Picker:
 			self,
 			logger,
 			limit=None,
+			json_input=False,
 			json_output=False,
 			source=None,
 			**options
 		):
+		self._json_input = json_input
 		self._json_output = json_output
 		self._options = self._fix_options(**options)
 		self._logger = logger
@@ -215,7 +223,8 @@ class Picker:
 			logger,
 			self._filter_thread,
 			source,
-			limit or self._default_limit
+			limit or self._default_limit,
+			json_input,
 		)
 		self._menu = Menu(self._filter, logger, **self._options)
 		self._menu.picked.connect(self._picked)

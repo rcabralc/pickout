@@ -1,10 +1,26 @@
 require "./cache"
 require "json"
+require "option_parser"
 require "socket"
 
 module Pickout
-	class Entries
-		include Iterator(Entry)
+	module EntriesFromStream
+		def read
+			if source.nil?
+				entries = new(STDIN)
+				new(entries, limit).start
+			else
+				Process.run(source, shell: true) do |process|
+					entries = new(process.output)
+					new(entries, limit).start
+				end
+			end
+		end
+	end
+
+	class LineEntries
+		extend EntriesFromStream
+		include Iterator(FullEntry)
 
 		@stream : IO::FileDescriptor
 
@@ -14,7 +30,29 @@ module Pickout
 
 		def next
 			while (line = @stream.gets(chomp: true))
-				return Entry.new((@index &+= 1), line) unless line.empty?
+				return FullEntry.new((@index &+= 1), line) unless line.empty?
+			end
+
+			stop
+		end
+	end
+
+	class JSONEntries
+		extend EntriesFromStream
+		include Iterator(FullEntry)
+
+		@stream : IO::FileDescriptor
+
+		def initialize(@stream)
+			@index = -1
+			@raw_entries = Array(EntryData).from_json(@stream)
+		end
+
+		def next
+			while (@index &+= 1) < @raw_entries.size
+				data = @raw_entries[@index]
+				value = data["value"].as_s
+				return FullEntry.new(@index, value, data) unless value.empty?
 			end
 
 			stop
@@ -22,8 +60,76 @@ module Pickout
 	end
 
 	class Filter
-		def initialize(entries : Iterator(Entry), limit : Int32)
-			@cache = Cache(Array(Match)).new(entries) do |cached_entries, pattern|
+		def self.start_from_arguments
+			arguments = parse_arguments
+			source = arguments[:source]
+			limit = arguments[:limit]
+			json_input = arguments[:json_input]
+			factory = json_input ? JSONEntries : LineEntries
+
+			if source.nil?
+				entries = factory.new(STDIN)
+				new(entries, limit).start
+			else
+				Process.run(source, shell: true) do |process|
+					entries = factory.new(process.output)
+					new(entries, limit).start
+				end
+			end
+		end
+
+		private def self.parse_arguments
+			json_input = false
+			limit = 50
+			source = nil
+
+			OptionParser.parse do |parser|
+				parser.banner = "Usage: filter [options]"
+
+				parser.on(
+					"--json-input",
+					"Input is a string containing a JSON array with objects containing a 'value' property."
+				) do |value|
+					json_input = true
+				end
+
+				parser.on(
+					"-l LIMIT",
+					"--limit LIMIT",
+					"Display up to LIMIT options for selection. [Default: #{limit}]"
+				) do |value|
+					limit = value.to_i if value.to_i > 0
+				end
+
+				parser.on(
+					"-s COMMAND",
+					"--source COMMAND",
+					"Use COMMAND to get the options, as opposed to reading them from STDIN."
+				) do |value|
+					source = value
+				end
+
+				parser.on(
+					"-h",
+					"--help",
+					"Show this help."
+				) do
+					puts parser
+					exit
+				end
+
+				parser.invalid_option do |flag|
+					STDERR.puts "error: #{flag} is not a valid option."
+					STDERR.puts parser
+					exit(1)
+				end
+			end
+
+			{json_input: json_input, limit: limit, source: source}
+		end
+
+		def initialize(full_entries : Iterator(FullEntry), limit : Int32)
+			@cache = Cache(Array(Match)).new(full_entries) do |cached_entries, pattern|
 				matches = FilteredMatches.new(cached_entries, pattern)
 				ranking = Ranking.new(matches, limit)
 				{ranking.entries, ranking.to_a}
@@ -60,7 +166,7 @@ module Pickout
 			total = @cache.size
 			items = matches.map do |match|
 				{
-					data: {} of String => String,
+					data: @cache.data_for_entry(match.entry),
 					index: match.entry.index,
 					partitions: match.partitions,
 					value: match.entry.value,
@@ -157,15 +263,5 @@ module Pickout
 		end
 	end
 
-	limit = ARGV[0].to_i
-
-	if ARGV.size == 2 && !ARGV[1].empty?
-		Process.run(ARGV[1], shell: true) do |process|
-			entries = Entries.new(process.output)
-			Filter.new(entries, limit).start
-		end
-	else
-		entries = Entries.new(STDIN)
-		Filter.new(entries, limit).start
-	end
+	Filter.start_from_arguments
 end

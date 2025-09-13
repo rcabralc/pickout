@@ -9,6 +9,7 @@ Usage:
             [--history-key=<key>]
             [--home=<input>]
             [--input=<input>]
+            [--json-input]
             [--json-output]
             [--limit=<limit>]
             [--prompt=<prompt>]
@@ -52,6 +53,9 @@ Options:
 
     -i <input>, --input <input>
         Use <input> as an initial value.
+
+    --json-input
+        Takes a JSON array with objects with a value property as the entries.
 
     --json-output
         Return the selection as a JSON array.
@@ -139,7 +143,6 @@ Key bindings:
 from app import run
 from docopt import docopt
 
-import json
 import sys
 
 
@@ -155,6 +158,7 @@ def main():
 		history_key=args['--history-key'],
 		home=args['--home'],
 		input=args['--input'],
+		json_input=args['--json-input'],
 		json_output=args['--json-output'],
 		limit=args['--limit'],
 		prompt=args['--prompt'],
