@@ -4,23 +4,18 @@ require "option_parser"
 require "socket"
 
 module Pickout
-	module EntriesFromStream
-		def read
-			if source.nil?
-				entries = new(STDIN)
-				new(entries, limit).start
-			else
-				Process.run(source, shell: true) do |process|
-					entries = new(process.output)
-					new(entries, limit).start
-				end
-			end
+	alias EntryData = Hash(String, JSON::Any)
+
+	class Entry
+		@data : EntryData
+		getter data
+		def initialize(@index : Int32, value : String, @data = EntryData.new)
+			@value = value.unicode_normalize(:nfc)
 		end
 	end
 
 	class LineEntries
-		extend EntriesFromStream
-		include Iterator(FullEntry)
+		include Iterator(Entry)
 
 		@stream : IO::FileDescriptor
 
@@ -30,7 +25,7 @@ module Pickout
 
 		def next
 			while (line = @stream.gets(chomp: true))
-				return FullEntry.new((@index &+= 1), line) unless line.empty?
+				return Entry.new((@index &+= 1), line) unless line.empty?
 			end
 
 			stop
@@ -38,8 +33,7 @@ module Pickout
 	end
 
 	class JSONEntries
-		extend EntriesFromStream
-		include Iterator(FullEntry)
+		include Iterator(Entry)
 
 		@stream : IO::FileDescriptor
 
@@ -52,7 +46,7 @@ module Pickout
 			while (@index &+= 1) < @raw_entries.size
 				data = @raw_entries[@index]
 				value = data["value"].as_s
-				return FullEntry.new(@index, value, data) unless value.empty?
+				return Entry.new(@index, value, data: data) unless value.empty?
 			end
 
 			stop
@@ -69,11 +63,11 @@ module Pickout
 
 			if source.nil?
 				entries = factory.new(STDIN)
-				new(entries, limit).start
+				new(entries.to_a, limit).start
 			else
 				Process.run(source, shell: true) do |process|
 					entries = factory.new(process.output)
-					new(entries, limit).start
+					new(entries.to_a, limit).start
 				end
 			end
 		end
@@ -128,9 +122,12 @@ module Pickout
 			{json_input: json_input, limit: limit, source: source}
 		end
 
-		def initialize(full_entries : Iterator(FullEntry), limit : Int32)
-			@cache = Cache(Array(Match)).new(full_entries) do |cached_entries, pattern|
-				matches = FilteredMatches.new(cached_entries, pattern)
+		def initialize(entries : Array(Entry), limit : Int32)
+			@cache = Cache(
+				CompositePattern,
+				Array(Match)
+			).new(entries) do |cache_entries, pattern|
+				matches = Matches.new(cache_entries, pattern)
 				ranking = Ranking.new(matches, limit)
 				{ranking.entries, ranking.to_a}
 			end
@@ -161,16 +158,16 @@ module Pickout
 		def filter(body)
 			input = body["input"].as(String)
 			seq = body["seq"].as(Int32)
-			entries, matches = @cache.filter(parse_tokens(input))
+			entries, matches = @cache.filter(build_pattern(input))
 			filtered = entries.size
 			total = @cache.size
 			items = matches.map do |match|
 				{
-					data: @cache.data_for_entry(match.entry),
+					data: match.entry.data,
 					index: match.entry.index,
 					partitions: match.partitions,
 					value: match.entry.value,
-					key: match.key
+					score: match.score
 				}
 			end
 			{
@@ -187,7 +184,7 @@ module Pickout
 			input = body["input"].as(String)
 			seq = body["seq"].as(Int32)
 			sep = body["sep"]?.as(String | Nil)
-			entries, _matches = @cache.filter(parse_tokens(input))
+			entries, _matches = @cache.filter(build_pattern(input))
 			size = input.size
 			candidates = entries.compact_map { |e| e.value if e.value.starts_with?(input) }
 			candidate = common_prefix(candidates)
@@ -210,6 +207,10 @@ module Pickout
 
 			body = Hash(String, String | Int32 | Nil).from_json(line)
 			body unless body.empty?
+		end
+
+		private def build_pattern(input)
+			CompositePattern.from_strings(parse_tokens(input))
 		end
 
 		private def parse_tokens(input)

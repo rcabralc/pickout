@@ -1,23 +1,26 @@
 module Pickout
-	MIN_SCORE = Int32::MIN + 1 # make room for subtracting 1 without underflow
+	MINUS_INFINITY = Int32::MIN >> 1 # divide by 2 to make room for calculations
+
+	REGULAR_MATCH_SCORE = 1
+	WORD_START_SCORE = 10
+	WORD_END_SCORE = 5
+	GAP_OPEN_PENALTY = -20
+	GAP_EXTEND_PENALTY = -1
+	CASE_MATCH_SCORE_BONUS = 10
+	CONSECUTIVE_MATCH_SCORE_BONUS = 10
 
 	def self.search(entries, pattern)
-		Picr::FilteredMatches.new(entries, pattern).sort
+		Matches.new(entries, pattern).sort
 	end
 
-	ScorePoints = {
-		big_word_start: 20,
-		consecutive: 30,
-		regular: 1,
-		uppercase: 10,
-		word_start: 15
-	}
+	alias FuzzyScore = Int32
 
 	class Entry
 		getter index, value
 
 		@value : String
-		@base_scores : Array(Int32)?
+		@value_downcased : String?
+		@fuzzy_base_scores : Array(Int32)?
 
 		def initialize(@index : Int32, value : String)
 			@value = value.unicode_normalize(:nfc)
@@ -25,44 +28,99 @@ module Pickout
 
 		delegate size, empty?, to: @value
 
-		def base_score_at(index)
-			base_scores[index]
+		def value_downcased
+			@value_downcased ||= @value.downcase
 		end
 
-		private def base_scores
-			@base_scores ||= Array(Int32).new(@value.size) do |index|
-				next ScorePoints[:big_word_start] if index.zero?
-
-				char = @value[index]
-				next ScorePoints[:regular] unless char.alphanumeric?
-
-				prev = @value[index - 1]
-				next ScorePoints[:big_word_start] if prev.whitespace?
-				next ScorePoints[:word_start] unless prev.alphanumeric?
-				next ScorePoints[:word_start] if char.uppercase? && prev.lowercase?
-
-				ScorePoints[:regular]
+		def each_char_downcased_with_index(&)
+			i = -1
+			value_downcased.each_char do |char|
+				yield char, i += 1
 			end
+		end
+
+		def fuzzy_base_score_at(index)
+			fuzzy_base_scores[index]
+		end
+
+		def fuzzy_base_scores
+			@fuzzy_base_scores ||=
+				if @value.single_byte_optimizable?
+					compute_fuzzy_scores(
+						@value.size,
+						@value.to_unsafe,
+						single_byte_lower_char?,
+						single_byte_upper_char?
+					)
+				else
+					compute_fuzzy_scores(
+						@value.size,
+						@value,
+						multi_byte_lower_char?,
+						multi_byte_upper_char?
+					)
+				end
+		end
+
+		macro compute_fuzzy_scores(size, value, is_lower, is_upper)
+			max = {{size}} - 1
+		  value = {{value}}
+			Array(FuzzyScore).new(max + 1) do |index|
+				char = value[index]
+				is_lower = {{is_lower.id}}(char)
+				is_upper = {{is_upper.id}}(char)
+				is_letter = is_lower || is_upper
+				next WORD_START_SCORE if index.zero? && is_letter
+				next WORD_END_SCORE if index == max && is_letter
+				next REGULAR_MATCH_SCORE unless is_letter
+
+				prev = value[index - 1]
+				is_prev_lower = {{is_lower.id}}(prev)
+				is_prev_upper = {{is_upper.id}}(prev)
+				is_prev_letter = is_prev_lower || is_prev_upper
+				next WORD_START_SCORE unless is_prev_letter
+				next WORD_START_SCORE if is_upper && is_prev_lower
+
+				next_ = value[index + 1]
+				is_next_lower = {{is_lower.id}}(next_)
+				is_next_upper = {{is_upper.id}}(next_)
+				is_next_letter = is_next_lower || is_next_upper
+				next WORD_END_SCORE unless is_next_letter
+				next WORD_END_SCORE if is_lower && is_next_upper
+
+				REGULAR_MATCH_SCORE
+			end
+		end
+
+		macro single_byte_lower_char?(char)
+			97_u8 <= {{char}} <= 122_u8
+		end
+
+		macro multi_byte_lower_char?(char)
+			char.lowercase?
+		end
+
+		macro single_byte_upper_char?(char)
+			65_u8 <= {{char}} <= 90_u8
+		end
+
+		macro multi_byte_upper_char?(char)
+			char.uppercase?
 		end
 	end
 
-	alias MatchKey = Int64
-
 	class Match
-		getter entry, key
-		protected getter indices, score
+		getter entry, score
+		protected getter indices
 
 		@entry : Entry
 		@indices = Slice(Int32).empty
-		@key : MatchKey
 		@score = 0
 
 		def initialize(@entry)
-			@key = 0_i64
 		end
 
 		def initialize(@entry, @score, @indices)
-			@key = @entry.size.to_i64 - @score
 		end
 
 		def merge(other)
@@ -104,7 +162,7 @@ module Pickout
 	end
 
 	class Matrix(T)
-		def initialize(rows, @cols : Int32)
+		def initialize(rows : Int32, @cols : Int32)
 			@elements = Pointer(T).malloc(rows * @cols)
 		end
 
@@ -115,28 +173,58 @@ module Pickout
 		def []=(row, col, value : T)
 			@elements[row * @cols + col] = value
 		end
+
+		def print(rows, cols, io = STDERR)
+			(0..rows).each do |i|
+				(0..cols).each do |j|
+					{% if T <= FuzzyScore %}
+						element = self[i, j]
+						if element <= MINUS_INFINITY
+							io.print("  -∞ ")
+						else
+							io.printf("% 4d ", self[i, j])
+						end
+					{% end %}
+				end
+				io.print("\n")
+			end
+		end
 	end
 
 	class FuzzyWorkspace
-		getter first_indices, best_indices
+		@s : Matrix(FuzzyScore)
+		@x : Matrix(FuzzyScore)
 
-		def initialize(@pattern_size : Int32, @entry_size : Int32 = 256)
-			@scores = Matrix(Int32).new(@pattern_size, @entry_size)
-			@ending_scores = Matrix(Int32).new(@pattern_size, @entry_size)
-			@first_indices = Pointer(Int32).malloc(@pattern_size)
-			@best_indices = Pointer(Int32).malloc(@pattern_size)
+		def initialize(@pattern_size : Int32, @capacity : Int32 = 256)
+			@capacity = 1 if @capacity.zero?
+			@s, @x = build_matrices(@pattern_size, @capacity)
 		end
 
-		def scores(size)
-			if size > @entry_size
-				while @entry_size < size
-					@entry_size = 2 * @entry_size
-				end
-				@scores = Matrix(Int32).new(@pattern_size, @entry_size)
-				@ending_scores = Matrix(Int32).new(@pattern_size, @entry_size)
+		def matrices(size)
+			return {@s, @x} if size <= @capacity
+
+			while @capacity < size
+				@capacity = 2 * @capacity
 			end
 
-			{@scores, @ending_scores}
+			@s, @x = build_matrices(@pattern_size, @capacity)
+
+			{@s, @x}
+		end
+
+		private def build_matrices(pattern_size, capacity)
+			rows = pattern_size + 1
+			cols = capacity + 1
+
+			s = Matrix(FuzzyScore).new(rows, cols)
+			x = Matrix(FuzzyScore).new(rows, cols)
+
+			s[0, 0] = x[0, 0] = 0
+			(1..capacity).each do |j|
+			  x[0, j] = s[0, j] = GAP_OPEN_PENALTY + (j &- 1) * GAP_EXTEND_PENALTY
+			end
+
+			{s, x}
 		end
 	end
 
@@ -179,104 +267,165 @@ module Pickout
 	end
 
 	class MatchableFuzzyPattern < MatchablePattern
+		@value_downcased : String
+		@chars : Array(Char)
+		@downcased_chars : Array(Char)
+
 		def initialize(@pattern : FuzzyPattern, @workspace : FuzzyWorkspace)
+			@value = @pattern.value
+			@value_downcased = @value.downcase
+			@chars = @value.each_char.to_a
+			@downcased_chars = @pattern.value.downcase.each_char.to_a
 			@size = @pattern.size
 		end
 
 		def matches?(entry) : Match | Nil
-			entry_value = entry.value
-			v_size = entry.size
-			value = @pattern.value
+			# Needleman-Wunsch with affine gaps, modified to match when the pattern is
+			# a subsequence of the entry text, that is, gaps in the text never occur,
+			# so the path along the matrix starting at the bottom right cell (the
+			# optimal score) towards the top left cell never goes up, only left or
+			# up-left.
 
-			scores, ending_scores = @workspace.scores(v_size)
-			first_indices = @workspace.first_indices
-			best_indices = @workspace.best_indices
+			p = @size
+			t = entry.value
+			q = entry.size
+			single_byte_optimizable = t.single_byte_optimizable? && @value.single_byte_optimizable?
+			unsafe_value = @value_downcased.to_unsafe
+			unsafe_entry_value = entry.value_downcased.to_unsafe
 
-			r_limit = v_size &- @size
-			l_limit = 0
-			min_score = best_score = MIN_SCORE
+			if p == 1 && single_byte_optimizable
+				# Special case single-char patterns: show something faster instead of
+				# trying to find the best possible match, since a single char is not
+				# much selective anyway and speed matters during incremental (cached)
+				# searches.
+				s_char = unsafe_value[0]
+				ti = unsafe_entry_value.to_slice(q).index(s_char)
+				return unless ti
 
-			value.each_char_with_index() do |p_char, pi|
-				prev_score = best_score = min_score
-
-				entry_value.each_char_with_index do |v_char, vi|
-					next if vi < l_limit || vi > r_limit
-
-					score = 0
-					if compare_chars(p_char, v_char)
-						# Record start index and bump l_limit.
-						first_indices[pi] = l_limit = vi if best_score == min_score
-						score &+= entry.base_score_at(vi)
-						if p_char.uppercase? && v_char.uppercase?
-							score &+= ScorePoints[:uppercase]
-						end
-						if pi.positive?
-							prev_pi = pi &- 1
-							prev_vi = vi &- 1
-							score &+= scores[prev_pi, prev_vi]
-							consecutive_score = ending_scores[prev_pi, prev_vi] &+ ScorePoints[:consecutive]
-							score = consecutive_score if consecutive_score > score
-						end
-					else
-						next if best_score == min_score
-
-						score &+= min_score
-					end
-
-					ending_scores[pi, vi] = score
-					score = prev_score &- 1 if prev_score &- 1 > score
-					scores[pi, vi] = prev_score = score
-					if score >= best_score # >= because we want rightmost best.
-						best_indices[pi] = vi
-						best_score = score
-					end
+				score = entry.fuzzy_base_score_at(ti)
+				unmatched_chars = q &- 1
+				open_gaps = (ti < unmatched_chars ? 1 : 0) + (ti > 0 ? 1 : 0)
+				score &+= open_gaps * GAP_OPEN_PENALTY
+				score &+= (unmatched_chars &- open_gaps) * GAP_EXTEND_PENALTY
+				if 65_u8 <= t.to_unsafe[ti] <= 90_u8 && @chars[0].uppercase?
+					score &+= CASE_MATCH_SCORE_BONUS
 				end
-
-				# If we didn't improve best score, we failed to find a match for `p_char`.
-				return if best_score == min_score
-
-				r_limit &+= 1
-				l_limit &+= 1
+				return Match.new(entry, score, Slice(Int32).new(1, read_only: true) { ti })
 			end
 
-			match_score = best_score
-			indices = Pointer(Int32).malloc(@size)
-			best_idx = best_indices[@size &- 1]
-			indices[@size &- 1] = best_idx
-
-			(@size &- 2).downto(0) do |pi|
-				vi = best_idx &- 1
-
-				# Prefer to show a consecutive match if the score ending here is the same as if it were not a match. The final resulting score would have been the same.
-				if (ending_scores[pi, vi] == scores[pi, vi] &&
-					compare_chars(value[pi], entry_value[vi]))
-					indices[pi] = best_idx = vi
-					next
+			# Check if the pattern is a subsequence beforehand, since this is
+			# relatively cheap.
+			i = 0
+			if single_byte_optimizable
+				q.times do |ti|
+					i += 1 if unsafe_value[i] == unsafe_entry_value[ti]
+					break if i == p
 				end
-
-				# Look for the best index, stop looking if score starts decreasing. Might not find the best perfect match, as there are multiple possible ways, but stopping early won't hurt.
-				best_score = min_score
-
-				# Check only until start index, because after that numbers weren't initialized.
-				vi.downto(first_indices[pi]) do |vi|
-					score = scores[pi, vi]
-					break if score <= best_score
-
-					best_score = score
-					best_idx = vi
+			else
+				entry.each_char_downcased_with_index do |t_char|
+					i += 1 if @downcased_chars[i] == t_char
+					break if i == p
 				end
+			end
+			return if i != p
 
-				indices[pi] = best_idx
+			# Pattern is a subsequence of the entry text; apply Needleman-Wunsch to
+			# find the best match.
+
+			lower_limit = 0
+			upper_limit = q - p
+
+			s, x = @workspace.matrices(q)
+
+			if single_byte_optimizable
+				p.times do |pi|
+					s_char = unsafe_value[pi]
+					i = pi &+ 1
+					x[i, lower_limit] = s[i, lower_limit] = x_last = s_last = MINUS_INFINITY
+
+					lower_limit.upto(upper_limit) do |ti|
+						j = ti &+ 1
+
+						gap = x_last + GAP_EXTEND_PENALTY
+						open_gap = s_last + GAP_OPEN_PENALTY
+						gap = open_gap if open_gap > gap
+						x[i, j] = x_last = gap
+
+						t_char = unsafe_entry_value[ti]
+						next s[i, j] = s_last = gap unless s_char == t_char
+
+						s_score = entry.fuzzy_base_score_at(ti)
+						if 65_u8 <= t.to_unsafe[ti] <= 90_u8 && @chars[pi].uppercase?
+							s_score &+= CASE_MATCH_SCORE_BONUS
+						end
+						diag = s[pi, ti] # s[i - 1, j - 1]
+						if i > 1 &&
+							diag != x[pi &- 1, ti &- 1] + GAP_EXTEND_PENALTY &&
+							diag != s[pi &- 1, ti &- 1] + GAP_OPEN_PENALTY
+							s_score &+= CONSECUTIVE_MATCH_SCORE_BONUS
+						end
+						s_score += diag
+						s_score = gap if gap > s_score
+						s[i, j] = s_last = s_score
+					end
+
+	  			lower_limit &=+ 1
+	  			upper_limit &+= 1
+				end
+			else
+				@downcased_chars.each_with_index do |s_char, pi|
+					i = pi &+ 1
+					x[i, lower_limit] = s[i, lower_limit] = x_last = s_last = MINUS_INFINITY
+
+					entry.each_char_downcased_with_index do |t_char, ti|
+						next if ti < lower_limit || ti > upper_limit
+
+						j = ti &+ 1
+
+						gap = x_last + GAP_EXTEND_PENALTY
+						open_gap = s_last + GAP_OPEN_PENALTY
+						gap = open_gap if open_gap > gap
+						x[i, j] = x_last = gap
+
+						next s[i, j] = s_last = gap unless s_char == t_char
+
+						s_score = entry.fuzzy_base_score_at(ti)
+						if t[ti].uppercase? && @chars[pi].uppercase?
+							s_score &+= CASE_MATCH_SCORE_BONUS
+						end
+						diag = s[pi, ti] # s[i - 1, j - 1]
+						if i > 1 &&
+							diag != x[pi &- 1, ti &- 1] + GAP_EXTEND_PENALTY &&
+							diag != s[pi &- 1, ti &- 1] + GAP_OPEN_PENALTY
+							s_score &+= CONSECUTIVE_MATCH_SCORE_BONUS
+						end
+						s_score += diag
+						s_score = gap if gap > s_score
+						s[i, j] = s_last = s_score
+					end
+
+	  			lower_limit &=+ 1
+	  			upper_limit &+= 1
+				end
 			end
 
-			indices = Slice.new(indices, @size, read_only: true)
-			Match.new(entry, match_score, indices)
-		end
+			i, j = p, q
+			indices = Pointer(Int32).malloc(p)
+			m = s
+			while i.positive?
+				score = m[i, j]
+				if score == x[i, j &- 1] + GAP_EXTEND_PENALTY
+					m = x
+				elsif score == s[i, j &- 1] + GAP_OPEN_PENALTY
+					m = s
+				else # it must have been a match
+					indices[i &-= 1] = j &- 1
+					m = s
+				end
+				j &-= 1
+			end
 
-		private def compare_chars(p_char : Char, v_char : Char)
-			return p_char == v_char.downcase if p_char.lowercase?
-
-			p_char == v_char
+			Match.new(entry, s[p, q], Slice.new(indices, p, read_only: true))
 		end
 	end
 
@@ -411,45 +560,36 @@ module Pickout
 		end
 	end
 
-	module FilteredMatches
+	module Matches
 		def self.new(entries : Iterator(Entry), strings : Array(String))
 			pattern = CompositePattern.from_strings(strings)
-			if pattern.empty?
-				EmptyImpl.new(entries, pattern)
-			else
-				Impl.new(entries, pattern)
-			end
+			entries = entries.to_a
+			new(entries, pattern)
 		end
 
 		def self.new(entries : Iterator(Entry), pattern : String)
 			pattern = CompositePattern.from_strings([pattern])
-			if pattern.empty?
-				EmptyImpl.new(entries, pattern)
-			else
-				Impl.new(entries, pattern)
-			end
+			entries = entries.to_a
+			new(entries, pattern)
 		end
 
 		def self.new(entries : Array(Entry), pattern : String)
 			pattern = CompositePattern.from_strings([pattern])
-			if pattern.empty?
-				EmptyImpl.new(entries.each, pattern)
-			else
-				Impl.new(entries.each, pattern)
-			end
+			new(entries, pattern)
+		end
+
+		def self.new(entries : Array(Entry), strings : Array(String))
+			pattern = CompositePattern.from_strings(strings)
+			new(entries, pattern)
 		end
 
 		def self.new(strings : Enumerable(String), pattern : String)
 			pattern = CompositePattern.from_strings([pattern])
-			entries = strings.map_with_index { |s, i| Entry.new(i, s) }.each
-			if pattern.empty?
-				EmptyImpl.new(entries, pattern)
-			else
-				Impl.new(entries, pattern)
-			end
+			entries = strings.map_with_index { |s, i| Entry.new(i, s) }
+			new(entries, pattern)
 		end
 
-		def self.new(entries : Iterator(Entry), pattern : CompositePattern)
+		def self.new(entries : Enumerable(Entry), pattern : CompositePattern)
 			if pattern.empty?
 				EmptyImpl.new(entries, pattern)
 			else
@@ -460,26 +600,17 @@ module Pickout
 		class Impl
 			include Iterator(Match)
 
-			def initialize(entries : Iterator(Entry), @pattern : CompositePattern)
-				@iterator = entries
-				@matches_channel = matches_channel = Channel(Match).new(50_000)
-				entries_channel = Channel(Entry).new(50_000)
-				concurrency = self.concurrency
+			def initialize(entries : Indexable(Entry), @pattern : CompositePattern)
+				@matches_channel = matches_channel = Channel(Match).new(300_000)
 				active_workers = Atomic.new(concurrency)
+				entries_index = Atomic.new(0)
+				entries_size = entries.size
 
-				spawn do
-					@iterator.each { |entry| entries_channel.send(entry) }
-					entries_channel.close
-				end
-
-				concurrency.times do
+				active_workers.get.times do
 					spawn do
 						pat = @pattern.to_matchable
-						loop do
-							entry = entries_channel.receive?
-							break unless entry
-
-							match = pat.matches?(entry)
+						while (index = entries_index.add(1)) < entries_size
+							match = pat.matches?(entries[index])
 							matches_channel.send(match) if match
 						end
 						matches_channel.close if active_workers.sub(1) == 1
@@ -488,7 +619,7 @@ module Pickout
 			end
 
 			def sort
-				to_a.sort_by!(&.key)
+				to_a.sort_by! { |m| -m.score }
 			end
 
 			def next
@@ -509,8 +640,10 @@ module Pickout
 		class EmptyImpl < Impl
 			include Iterator::IteratorWrapper
 
-			def initialize(entries : Iterator(Entry), @pattern : CompositePattern)
-				@iterator = entries
+			@iterator : Iterator(Entry)
+
+			def initialize(entries : Enumerable(Entry), @pattern : CompositePattern)
+				@iterator = entries.each
 				@matches_channel = Channel(Match).new
 			end
 
@@ -529,10 +662,10 @@ module Pickout
 		@reversed : Slice(Match)
 
 		def initialize(matches : Iterator(Match), @limit : Int32)
-			heap = MaxHeap(Match, MatchKey).new(@limit, &.key)
+			heap = MinHeap(Match, FuzzyScore).new(@limit)
 			entries = Array(Entry).new(50_000)
 			matches.each do |match|
-				heap.push(match)
+				heap.push(match, match.score)
 				entries.push(match.entry)
 			end
 			@entries = entries
@@ -544,22 +677,28 @@ module Pickout
 		end
 	end
 
-	class MaxHeap(T, K)
-		def initialize(@capacity : Int32, &@key : T -> K)
+	class MinHeap(T, K)
+		@items : Slice(Tuple(T, K))
+
+		def initialize(@capacity : Int32)
 			@size = 0
-			@items = Pointer(Tuple(T, K)).malloc(@capacity)
+			items = Pointer(Tuple(T, K)).malloc(@capacity)
+			@items = Slice.new(items, @capacity)
 		end
 
-		def push(item)
-			key = @key.call(item)
-			if @size < @capacity
-				@items[@size] = {item, key}
-				@size += 1
-				build if @size == @capacity
-			elsif key < @items[0][1]
+		def push(item, key : K)
+			if @size == @capacity
+				return if key <= @items[0][1]
+
 				@items[0] = {item, key}
 				heapify(0)
+
+				return
 			end
+
+			@items[@size] = {item, key}
+			@size &+= 1
+			build if @size == @capacity
 		end
 
 		def to_slice! : Slice(T)
@@ -573,18 +712,18 @@ module Pickout
 		end
 
 		private def build
-			(@size // 2).downto(1).each { |i| heapify(i - 1) }
+			(@size // 2).downto(1) { |i| heapify(i - 1) }
 		end
 
 		private def heapify(i)
-			left = 2 * i + 1
-			right = 2 * (i + 1)
-			largest = i
-			largest = left if left < @size && @items[left][1] > @items[largest][1]
-			largest = right if right < @size && @items[right][1] > @items[largest][1]
-			if largest != i
-				@items[i], @items[largest] = @items[largest], @items[i]
-				heapify(largest)
+			l = (i << 1) &+ 1
+			r = (i &+ 1) << 1
+			smallest = i
+			smallest = l if l < @size && @items[l][1] < @items[smallest][1]
+			smallest = r if r < @size && @items[r][1] < @items[smallest][1]
+			if smallest != i
+				@items[i], @items[smallest] = @items[smallest], @items[i]
+				heapify(smallest)
 			end
 		end
 	end
