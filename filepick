@@ -24,6 +24,19 @@ fail () {
 	exit 1
 }
 
+open_with_editor () {
+	local editor="$1"
+	local item="$2"
+
+	# If attached to a terminal, just edit the item from it and quit.
+	[ -t 0 ] && exec $editor -- "$item"
+
+	# Otherwise, spawn a new terminal and then edit the item.
+	local term=${FILEPICK_TERM:-${TERMCMD:-xterm}}
+	EDITOR="$editor" setsid $term -e $editor -- "$item" &
+	exit 0
+}
+
 editor=${FILEPICK_EDITOR:-${VISUAL:-${EDITOR:-vi}}}
 excludes=()
 while [ "$#" -gt 0 ]; do
@@ -292,18 +305,19 @@ while true; do
 	# If this is a directory, open it and quit.
 	[ -d "$item" ] && exec $dir_opener "$item"
 
-	# If the item is an existing file, delegate it to xdg-open and quit.
-	[ -f "$item" ] && EDITOR=$editor exec xdg-open "$item"
+	# If the item is an existing file, open it and quit.
+	if [ -f "$item" ]; then
+		# Use user's editor if the file looks like text.
+		if file -brk "$item" | grep -q -P "(Unicode|ASCII) text"; then
+			open_with_editor "$editor" "$item"
+		fi
+
+		# Otherwise, delegate it to xdg-open.
+		EDITOR="$editor" exec xdg-open "$item"
+	fi
 
 	# Not a file or a directory. Attempt to edit it (the user's editor will
 	# likely create a new file, possibly creating any necessary intermediary
-	# directory).
-
-	# If attached to a terminal, just edit the item from it and quit.
-	[ -t 0 ] && exec $editor -- "$item"
-
-	# Otherwise, spawn a new terminal and then edit the item.
-	term=${FILEPICK_TERM:-${TERMCMD:-xterm}}
-	EDITOR="$editor" setsid $term -e $editor -- "$item" &
-	exit 0
+	# directories).
+	open_with_editor "$editor" "$item"
 done
