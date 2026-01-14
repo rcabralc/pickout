@@ -293,7 +293,7 @@ while true; do
 	[ -d "$item" ] && exec $dir_opener "$item"
 
 	# If the item is an existing file, delegate it to xdg-open and quit.
-	[ -f "$item" ] && exec xdg-open "$item"
+	[ -f "$item" ] && EDITOR=$editor exec xdg-open "$item"
 
 	# Not a file or a directory. Attempt to edit it (the user's editor will
 	# likely create a new file, possibly creating any necessary intermediary
