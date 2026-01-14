@@ -1,10 +1,12 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
+shopt -s globstar
 
 usage () {
 	echo "Usage:"
-	echo "    filepick [--exclude=<pattern> ...]"
+	echo "    filepick [--accept-input|--no-accept-input]"
+	echo "             [--exclude=<pattern> ...]"
 	echo "             [--geometry=<geometry>]"
 	echo "             [--home=<home>]"
 	echo "             [--input=<input>]"
@@ -26,6 +28,13 @@ editor=${FILEPICK_EDITOR:-${VISUAL:-${EDITOR:-vi}}}
 excludes=()
 while [ "$#" -gt 0 ]; do
 	case $1 in
+		--accept-input)
+			accept_input_arg=--accept-input
+			;;
+		--no-accept-input)
+			accept_input_arg=
+			;;
+
 		--dir-opener=*)
 			arg="${1#*=}"
 			[ -z "$arg" ] && fail "--dir-opener requires argument"
@@ -42,13 +51,13 @@ while [ "$#" -gt 0 ]; do
 		-E=*|--exclude=*)
 			exclude="${1#*=}"
 			[ -z "$exclude" ] && fail "--exclude requires argument"
-			excludes+=("--exclude" "'$exclude'")
+			excludes+=("${exclude}")
 			;;
 		-E|--exclude)
 			shift
 			exclude="$1"
 			[ -z "$exclude" ] && fail "--exclude requires argument"
-			excludes+=("--exclude" "'$exclude'")
+			excludes+=("${exclude}")
 			;;
 
 		-h|--help)
@@ -57,6 +66,8 @@ while [ "$#" -gt 0 ]; do
 			usage
 			echo
 			echo "Options:"
+			echo "    --[no-]accept-input"
+			echo "                     sets or resets pickout option --accept-input."
 			echo "    --dir-opener=<opener>"
 			echo "                     program used to open directories (default: xdg-open)."
 			echo "    --exclude=<pattern>"
@@ -207,17 +218,40 @@ fi
 dir_opener=${dir_opener:-xdg-open}
 root=${root:-$HOME}
 title=${title:-"Select file${title_suffix}…"}
-[ -n "$geometry" ] && geometryarg="--qwindowgeometry $geometry"
+[ -n "$geometry" ] && geometry_arg="--qwindowgeometry $geometry"
+
+fd_options=". --type file --follow --hidden --no-ignore-vcs"
+
+# $input is taken as a filesystem path. Make sure its directory is not excluded.
+[ -f "${input}" ] && input_dir=$(dirname "${input}")
+[ -d "${input}" ] && input_dir="${input}"
+fd_exclude_args=()
+if [ -n "${input_dir}" ]; then
+	for glob in "${excludes[@]}"; do
+		case "${input_dir}" in
+			${glob})
+				continue
+				;;
+			*)
+				fd_exclude_args+=("--exclude" "'${glob}'")
+				;;
+		esac
+	done
+else
+	for glob in "${excludes[@]}"; do
+		fd_exclude_args+=("--exclude" "'${glob}'")
+	done
+fi
 
 while true; do
 	root="${root%/}"
 	cd "$root"
-	fdcmd="fd . --type file --follow --hidden --no-ignore-vcs ${excludes[*]}"
+	fdcmd="fd ${fd_options} ${fd_exclude_args[*]}"
 	if [ -z "$target" ]; then
 		item=$(
 			pickout \
-				$geometryarg \
-				--accept-input \
+				$geometry_arg \
+				$accept_input_arg \
 				--history-key "file://$PWD" \
 				--home "$home" \
 				--input "$input" \
@@ -269,7 +303,7 @@ while true; do
 	[ -t 0 ] && exec $editor -- "$item"
 
 	# Otherwise, spawn a new terminal and then edit the item.
-	term="${FILEPICK_TERM:-${TERMCMD:-xterm}} -e"
-	EDITOR="$editor" setsid $term $editor -- "$item" &
+	term=${FILEPICK_TERM:-${TERMCMD:-xterm}}
+	EDITOR="$editor" setsid $term -e $editor -- "$item" &
 	exit 0
 done
