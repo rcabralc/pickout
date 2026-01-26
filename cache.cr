@@ -5,7 +5,7 @@ module Pickout
 	class Cache(K, T)
 		def initialize(
 			@entries : Array(Entry),
-			&@refilter : Array(Entry), K -> Tuple(Array(Entry), T)
+			&@refilter : Array(Entry), K -> Result(T)
 		)
 			@cache = {} of K => Hit(K, T)
 		end
@@ -32,16 +32,33 @@ module Pickout
 			@cache[key] = Hit(K, T).new(key, result)
 			result
 		end
-	end
 
-	class Hit(K, T)
-		getter :result, :entries, :weight, :key
+		class Result(T)
+			def initialize(@thing : T, &@entries : T -> Array(Entry))
+			end
 
-		@entries : Array(Entry)
+			def entries
+				@entries.call(@thing)
+			end
 
-		def initialize(@key : K, @result : Tuple(Array(Entry), T))
-			@entries = @result[0]
-			@weight = @entries.size
+			def size
+				entries.size
+			end
+
+			def unwrap
+				@thing
+			end
+		end
+
+		class Hit(K, T)
+			getter :result, :entries, :weight, :key
+
+			@entries : Array(Entry)
+
+			def initialize(@key : K, @result : Result(T))
+				@entries = @result.entries
+				@weight = @entries.size
+			end
 		end
 	end
 end

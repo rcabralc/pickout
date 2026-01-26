@@ -6,11 +6,13 @@ require "socket"
 module Pickout
 	alias EntryData = Hash(String, JSON::Any)
 
-	class Entry
-		@data : EntryData
+	class EntryWithData < Entry
 		getter data
-		def initialize(@index : Int32, value : String, @data = EntryData.new)
-			@value = value.unicode_normalize(:nfc)
+
+		@data : EntryData
+
+		def initialize(index : Int32, value : String, @data = EntryData.new)
+			super(index, value)
 		end
 	end
 
@@ -25,7 +27,7 @@ module Pickout
 
 		def next
 			while (line = @stream.gets(chomp: true))
-				return Entry.new((@index &+= 1), line) unless line.empty?
+				return EntryWithData.new(@index &+= 1, line) unless line.empty?
 			end
 
 			stop
@@ -46,7 +48,7 @@ module Pickout
 			while (@index &+= 1) < @raw_entries.size
 				data = @raw_entries[@index]
 				value = data["value"].as_s
-				return Entry.new(@index, value, data: data) unless value.empty?
+				return EntryWithData.new(@index, value, data: data) unless value.empty?
 			end
 
 			stop
@@ -125,11 +127,11 @@ module Pickout
 		def initialize(entries : Array(Entry), limit : Int32)
 			@cache = Cache(
 				CompositePattern,
-				Array(Match)
+				Ranking
 			).new(entries) do |cache_entries, pattern|
 				matches = Matches.new(cache_entries, pattern)
 				ranking = Ranking.new(matches, limit)
-				{ranking.entries, ranking.to_a}
+				Cache::Result(Ranking).new(ranking, &.entries)
 			end
 		end
 
@@ -158,15 +160,16 @@ module Pickout
 		def filter(body)
 			input = body["input"].as(String)
 			seq = body["seq"].as(Int32)
-			entries, matches = @cache.filter(build_pattern(input))
-			filtered = entries.size
+			result = @cache.filter(build_pattern(input))
+			filtered = result.size
 			total = @cache.size
-			items = matches.map do |match|
+			items = result.unwrap.map do |match|
+				entry = match.entry.as(EntryWithData)
 				{
-					data: match.entry.data,
-					index: match.entry.index,
+					data: entry.data,
+					index: entry.index,
 					partitions: match.partitions,
-					value: match.entry.value,
+					value: entry.value,
 					score: match.score
 				}
 			end
@@ -184,7 +187,8 @@ module Pickout
 			input = body["input"].as(String)
 			seq = body["seq"].as(Int32)
 			sep = body["sep"]?.as(String | Nil)
-			entries, _matches = @cache.filter(build_pattern(input))
+			result = @cache.filter(build_pattern(input))
+			entries = result.entries
 			size = input.size
 			candidates = entries.compact_map { |e| e.value if e.value.starts_with?(input) }
 			candidate = common_prefix(candidates)
@@ -198,6 +202,19 @@ module Pickout
 				request: body,
 				seq: seq,
 				candidate: candidate
+			}
+		end
+
+		def pick(body)
+			index = body["index"].as(Int32)
+			value = body["value"].as(String)
+			data = @data[index]
+			{
+				command: "pick",
+				request: body,
+				index: index,
+				value: value,
+				data: data
 			}
 		end
 

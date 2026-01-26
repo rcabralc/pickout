@@ -116,7 +116,7 @@
 				const cells = []
 
 				if (item.data.icon) {
-    				const img = document.createElement('img')
+    			const img = document.createElement('img')
 					img.setAttribute('src', item.data.icon)
 					const cell = document.createElement('td')
 					cell.classList.add('icon')

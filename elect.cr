@@ -3,10 +3,9 @@ module Pickout
 
 	REGULAR_MATCH_SCORE = 1
 	WORD_START_SCORE = 10
-	WORD_END_SCORE = 5
 	GAP_OPEN_PENALTY = -20
 	GAP_EXTEND_PENALTY = -1
-	CASE_MATCH_SCORE_BONUS = 10
+	CASE_MATCH_SCORE_BONUS = 15
 	CONSECUTIVE_MATCH_SCORE_BONUS = 10
 
 	def self.search(entries, pattern)
@@ -20,10 +19,10 @@ module Pickout
 
 		@value : String
 		@value_downcased : String?
-		@fuzzy_base_scores : Array(Int32)?
 
 		def initialize(@index : Int32, value : String)
-			@value = value.unicode_normalize(:nfc)
+			@single_byte_optimizable = value.single_byte_optimizable?
+			@value = @single_byte_optimizable ? value : value.unicode_normalize(:nfc)
 		end
 
 		delegate size, empty?, to: @value
@@ -32,80 +31,15 @@ module Pickout
 			@value_downcased ||= @value.downcase
 		end
 
-		def each_char_downcased_with_index(&)
+		def single_byte_optimizable?
+			@single_byte_optimizable
+		end
+
+		def each_downcased_char_with_index(&)
 			i = -1
 			value_downcased.each_char do |char|
 				yield char, i += 1
 			end
-		end
-
-		def fuzzy_base_score_at(index)
-			fuzzy_base_scores[index]
-		end
-
-		def fuzzy_base_scores
-			@fuzzy_base_scores ||=
-				if @value.single_byte_optimizable?
-					compute_fuzzy_scores(
-						@value.size,
-						@value.to_unsafe,
-						single_byte_lower_char?,
-						single_byte_upper_char?
-					)
-				else
-					compute_fuzzy_scores(
-						@value.size,
-						@value,
-						multi_byte_lower_char?,
-						multi_byte_upper_char?
-					)
-				end
-		end
-
-		macro compute_fuzzy_scores(size, value, is_lower, is_upper)
-			max = {{size}} - 1
-		  value = {{value}}
-			Array(FuzzyScore).new(max + 1) do |index|
-				char = value[index]
-				is_lower = {{is_lower.id}}(char)
-				is_upper = {{is_upper.id}}(char)
-				is_letter = is_lower || is_upper
-				next WORD_START_SCORE if index.zero? && is_letter
-				next WORD_END_SCORE if index == max && is_letter
-				next REGULAR_MATCH_SCORE unless is_letter
-
-				prev = value[index - 1]
-				is_prev_lower = {{is_lower.id}}(prev)
-				is_prev_upper = {{is_upper.id}}(prev)
-				is_prev_letter = is_prev_lower || is_prev_upper
-				next WORD_START_SCORE unless is_prev_letter
-				next WORD_START_SCORE if is_upper && is_prev_lower
-
-				next_ = value[index + 1]
-				is_next_lower = {{is_lower.id}}(next_)
-				is_next_upper = {{is_upper.id}}(next_)
-				is_next_letter = is_next_lower || is_next_upper
-				next WORD_END_SCORE unless is_next_letter
-				next WORD_END_SCORE if is_lower && is_next_upper
-
-				REGULAR_MATCH_SCORE
-			end
-		end
-
-		macro single_byte_lower_char?(char)
-			97_u8 <= {{char}} <= 122_u8
-		end
-
-		macro multi_byte_lower_char?(char)
-			char.lowercase?
-		end
-
-		macro single_byte_upper_char?(char)
-			65_u8 <= {{char}} <= 90_u8
-		end
-
-		macro multi_byte_upper_char?(char)
-			char.uppercase?
 		end
 	end
 
@@ -167,16 +101,16 @@ module Pickout
 		end
 
 		def [](row, col) : T
-			@elements[row * @cols + col]
+			@elements[row &* @cols &+ col]
 		end
 
 		def []=(row, col, value : T)
-			@elements[row * @cols + col] = value
+			@elements[row &* @cols &+ col] = value
 		end
 
 		def print(rows, cols, io = STDERR)
-			(0..rows).each do |i|
-				(0..cols).each do |j|
+			(0...rows).each do |i|
+				(0...cols).each do |j|
 					{% if T <= FuzzyScore %}
 						element = self[i, j]
 						if element <= MINUS_INFINITY
@@ -275,8 +209,9 @@ module Pickout
 			@value = @pattern.value
 			@value_downcased = @value.downcase
 			@chars = @value.each_char.to_a
-			@downcased_chars = @pattern.value.downcase.each_char.to_a
+			@downcased_chars = @pattern.value.downcase.chars
 			@size = @pattern.size
+			@single_byte_optimizable = @value.single_byte_optimizable?
 		end
 
 		def matches?(entry) : Match | Nil
@@ -287,124 +222,134 @@ module Pickout
 			# up-left.
 
 			p = @size
-			t = entry.value
 			q = entry.size
-			single_byte_optimizable = t.single_byte_optimizable? && @value.single_byte_optimizable?
-			unsafe_value = @value_downcased.to_unsafe
-			unsafe_entry_value = entry.value_downcased.to_unsafe
+			single_byte_optimizable = @single_byte_optimizable && entry.single_byte_optimizable?
 
 			if p == 1 && single_byte_optimizable
 				# Special case single-char patterns: show something faster instead of
 				# trying to find the best possible match, since a single char is not
 				# much selective anyway and speed matters during incremental (cached)
 				# searches.
-				s_char = unsafe_value[0]
-				ti = unsafe_entry_value.to_slice(q).index(s_char)
+				s_downcased_char = @value_downcased.to_unsafe[0]
+				unsafe_downcased_t = entry.value_downcased.to_unsafe
+				ti = unsafe_downcased_t.to_slice(q).index(s_downcased_char)
 				return unless ti
 
-				score = entry.fuzzy_base_score_at(ti)
 				unmatched_chars = q &- 1
-				open_gaps = (ti < unmatched_chars ? 1 : 0) + (ti > 0 ? 1 : 0)
-				score &+= open_gaps * GAP_OPEN_PENALTY
-				score &+= (unmatched_chars &- open_gaps) * GAP_EXTEND_PENALTY
-				if 65_u8 <= t.to_unsafe[ti] <= 90_u8 && @chars[0].uppercase?
+				open_gaps = (ti < unmatched_chars ? 1 : 0) &+ (ti > 0 ? 1 : 0)
+				score = single_byte_fuzzy_score(entry.value.to_unsafe, ti)
+				score &+= open_gaps &* GAP_OPEN_PENALTY
+				score &+= (unmatched_chars &- open_gaps) &* GAP_EXTEND_PENALTY
+				if single_byte_upper_char?(entry.value.to_unsafe[ti]) &&
+					single_byte_upper_char?(@value.to_unsafe[0])
 					score &+= CASE_MATCH_SCORE_BONUS
 				end
-				return Match.new(entry, score, Slice(Int32).new(1, read_only: true) { ti })
+
+				return Match.new(entry, score, Slice.new(1, ti, read_only: true))
 			end
 
 			# Check if the pattern is a subsequence beforehand, since this is
 			# relatively cheap.
-			i = 0
-			if single_byte_optimizable
-				q.times do |ti|
-					i += 1 if unsafe_value[i] == unsafe_entry_value[ti]
-					break if i == p
+			if p > 4
+				i = 0
+				if single_byte_optimizable
+					unsafe_downcased_s = @value_downcased.to_unsafe
+					unsafe_downcased_t = entry.value_downcased.to_unsafe
+					q.times do |ti|
+						i &+= 1 if unsafe_downcased_s[i] == unsafe_downcased_t[ti]
+						break unless i < p
+					end
+				else
+					entry.each_downcased_char_with_index do |t_char|
+						i &+= 1 if @downcased_chars[i] == t_char
+						break unless i < p
+					end
 				end
-			else
-				entry.each_char_downcased_with_index do |t_char|
-					i += 1 if @downcased_chars[i] == t_char
-					break if i == p
-				end
+				return if i != p
 			end
-			return if i != p
 
 			# Pattern is a subsequence of the entry text; apply Needleman-Wunsch to
 			# find the best match.
 
+			t = entry.value
 			lower_limit = 0
-			upper_limit = q - p
-
+			upper_limit = q &- p
 			s, x = @workspace.matrices(q)
 
 			if single_byte_optimizable
+				unsafe_s = @value.to_unsafe
+				unsafe_t = t.to_unsafe
+				unsafe_downcased_s = @value_downcased.to_unsafe
+				unsafe_downcased_t = entry.value_downcased.to_unsafe
 				p.times do |pi|
-					s_char = unsafe_value[pi]
 					i = pi &+ 1
 					x[i, lower_limit] = s[i, lower_limit] = x_last = s_last = MINUS_INFINITY
+					k = -1
 
+					found = false
 					lower_limit.upto(upper_limit) do |ti|
-						j = ti &+ 1
+						compute_scores(
+							s,
+							x,
+							s_last,
+							x_last,
+							i,
+							k,
+							pi,
+							ti,
+							entry,
+							unsafe_s,
+							unsafe_t,
+							unsafe_downcased_s[pi],
+							unsafe_downcased_t[ti],
+							single_byte_upper_char?,
+							single_byte_upper_char?,
+							single_byte_fuzzy_score
+						)
 
-						gap = x_last + GAP_EXTEND_PENALTY
-						open_gap = s_last + GAP_OPEN_PENALTY
-						gap = open_gap if open_gap > gap
-						x[i, j] = x_last = gap
-
-						t_char = unsafe_entry_value[ti]
-						next s[i, j] = s_last = gap unless s_char == t_char
-
-						s_score = entry.fuzzy_base_score_at(ti)
-						if 65_u8 <= t.to_unsafe[ti] <= 90_u8 && @chars[pi].uppercase?
-							s_score &+= CASE_MATCH_SCORE_BONUS
-						end
-						diag = s[pi, ti] # s[i - 1, j - 1]
-						if i > 1 &&
-							diag != x[pi &- 1, ti &- 1] + GAP_EXTEND_PENALTY &&
-							diag != s[pi &- 1, ti &- 1] + GAP_OPEN_PENALTY
-							s_score &+= CONSECUTIVE_MATCH_SCORE_BONUS
-						end
-						s_score += diag
-						s_score = gap if gap > s_score
-						s[i, j] = s_last = s_score
+						found = true
 					end
 
-	  			lower_limit &=+ 1
+					return unless found
+
+	  			lower_limit = k &+ 1
 	  			upper_limit &+= 1
 				end
 			else
 				@downcased_chars.each_with_index do |s_char, pi|
 					i = pi &+ 1
 					x[i, lower_limit] = s[i, lower_limit] = x_last = s_last = MINUS_INFINITY
+					k = -1
 
-					entry.each_char_downcased_with_index do |t_char, ti|
+					found = false
+					entry.each_downcased_char_with_index do |t_char, ti|
 						next if ti < lower_limit || ti > upper_limit
 
-						j = ti &+ 1
+						compute_scores(
+							s,
+							x,
+							s_last,
+							x_last,
+							i,
+							k,
+							pi,
+							ti,
+							entry,
+							@chars,
+							t,
+							s_char,
+							t_char,
+							multi_byte_upper_char?,
+							multi_byte_upper_char?,
+							multi_byte_fuzzy_score
+						)
 
-						gap = x_last + GAP_EXTEND_PENALTY
-						open_gap = s_last + GAP_OPEN_PENALTY
-						gap = open_gap if open_gap > gap
-						x[i, j] = x_last = gap
-
-						next s[i, j] = s_last = gap unless s_char == t_char
-
-						s_score = entry.fuzzy_base_score_at(ti)
-						if t[ti].uppercase? && @chars[pi].uppercase?
-							s_score &+= CASE_MATCH_SCORE_BONUS
-						end
-						diag = s[pi, ti] # s[i - 1, j - 1]
-						if i > 1 &&
-							diag != x[pi &- 1, ti &- 1] + GAP_EXTEND_PENALTY &&
-							diag != s[pi &- 1, ti &- 1] + GAP_OPEN_PENALTY
-							s_score &+= CONSECUTIVE_MATCH_SCORE_BONUS
-						end
-						s_score += diag
-						s_score = gap if gap > s_score
-						s[i, j] = s_last = s_score
+						found = true
 					end
 
-	  			lower_limit &=+ 1
+					return unless found
+
+	  			lower_limit = k &+ 1
 	  			upper_limit &+= 1
 				end
 			end
@@ -414,9 +359,9 @@ module Pickout
 			m = s
 			while i.positive?
 				score = m[i, j]
-				if score == x[i, j &- 1] + GAP_EXTEND_PENALTY
+				if score == x[i, j &- 1] &+ GAP_EXTEND_PENALTY
 					m = x
-				elsif score == s[i, j &- 1] + GAP_OPEN_PENALTY
+				elsif score == s[i, j &- 1] &+ GAP_OPEN_PENALTY
 					m = s
 				else # it must have been a match
 					indices[i &-= 1] = j &- 1
@@ -425,7 +370,104 @@ module Pickout
 				j &-= 1
 			end
 
-			Match.new(entry, s[p, q], Slice.new(indices, p, read_only: true))
+		Match.new(entry, s[p, q], Slice.new(indices, p, read_only: true))
+		end
+
+		macro compute_scores(
+			s,
+			x,
+			s_last,
+			x_last,
+			i,
+			k,
+			pi,
+			ti,
+			entry,
+			s_chars,
+			t_chars,
+			s_downcased_char,
+			t_downcased_char,
+			is_upper_s,
+			is_upper_t,
+			fuzzy_score
+		)
+			j = {{ti}} &+ 1
+
+			gap = {{x_last}} &+ GAP_EXTEND_PENALTY
+			open_gap = {{s_last}} &+ GAP_OPEN_PENALTY
+			gap = open_gap if open_gap > gap
+			{{x}}[{{i}}, j] = {{x_last}} = gap
+
+			unless {{s_downcased_char}} == {{t_downcased_char}}
+				next {{s}}[{{i}}, j] = {{s_last}} = {{x_last}}
+			end
+
+			{{k}} = {{ti}} if {{k}}.negative?
+			s_score = {{fuzzy_score.id}}({{t_chars}}, {{ti}})
+			if {{is_upper_t.id}}({{t_chars}}[{{ti}}]) && {{is_upper_s.id}}({{s_chars}}[{{pi}}])
+				s_score &+= CASE_MATCH_SCORE_BONUS
+			end
+			diag = {{s}}[{{pi}}, {{ti}}] # s[i - 1, j - 1]
+			if {{i}} > 1 &&
+				diag != {{x}}[{{pi}}, {{ti}} &- 1] &+ GAP_EXTEND_PENALTY &&
+				diag != {{s}}[{{pi}}, {{ti}} &- 1] &+ GAP_OPEN_PENALTY
+				s_score &+= CONSECUTIVE_MATCH_SCORE_BONUS
+			end
+			s_score &+= diag
+			s_score = {{x_last}} if {{x_last}} > s_score
+			{{s}}[{{i}}, j] = {{s_last}} = s_score
+		end
+
+		def single_byte_fuzzy_score(string, index)
+			compute_fuzzy_score(
+				string,
+				index,
+				single_byte_lower_char?,
+				single_byte_upper_char?
+			)
+		end
+
+		def multi_byte_fuzzy_score(string, index)
+			compute_fuzzy_score(
+				string,
+				index,
+				multi_byte_lower_char?,
+				multi_byte_upper_char?
+			)
+		end
+
+		macro compute_fuzzy_score(string, index, is_lower, is_upper)
+			char = {{string}}[{{index}}]
+			is_lower = {{is_lower.id}}(char)
+			is_upper = {{is_upper.id}}(char)
+			is_letter = is_lower || is_upper
+			return WORD_START_SCORE if {{index}}.zero? && is_letter
+			return REGULAR_MATCH_SCORE unless is_letter
+
+			prev = {{string}}[{{index}} &- 1]
+			is_prev_lower = {{is_lower.id}}(prev)
+			is_prev_upper = {{is_upper.id}}(prev)
+			is_prev_letter = is_prev_lower || is_prev_upper
+			return WORD_START_SCORE unless is_prev_letter
+			return WORD_START_SCORE if is_upper && is_prev_lower
+
+			REGULAR_MATCH_SCORE
+		end
+
+		macro single_byte_lower_char?(char)
+			97_u8 <= {{char}} <= 122_u8
+		end
+
+		macro single_byte_upper_char?(char)
+			65_u8 <= {{char}} <= 90_u8
+		end
+
+		macro multi_byte_lower_char?(char)
+			{{char}}.lowercase?
+		end
+
+		macro multi_byte_upper_char?(char)
+			{{char}}.uppercase?
 		end
 	end
 
@@ -589,7 +631,7 @@ module Pickout
 			new(entries, pattern)
 		end
 
-		def self.new(entries : Enumerable(Entry), pattern : CompositePattern)
+		def self.new(entries : Indexable(Entry), pattern : CompositePattern)
 			if pattern.empty?
 				EmptyImpl.new(entries, pattern)
 			else
@@ -601,7 +643,7 @@ module Pickout
 			include Iterator(Match)
 
 			def initialize(entries : Indexable(Entry), @pattern : CompositePattern)
-				@matches_channel = matches_channel = Channel(Match).new(300_000)
+				@matches_channel = Channel(Match).new(500_000)
 				active_workers = Atomic.new(concurrency)
 				entries_index = Atomic.new(0)
 				entries_size = entries.size
@@ -611,9 +653,9 @@ module Pickout
 						pat = @pattern.to_matchable
 						while (index = entries_index.add(1)) < entries_size
 							match = pat.matches?(entries[index])
-							matches_channel.send(match) if match
+							@matches_channel.send(match) if match
 						end
-						matches_channel.close if active_workers.sub(1) == 1
+						@matches_channel.close if active_workers.sub(1) == 1
 					end
 				end
 			end
@@ -628,7 +670,7 @@ module Pickout
 
 			{% if flag?(:preview_mt) %}
 				private def concurrency
-					(ENV.fetch("CRYSTAL_WORKERS", System.cpu_count.to_i32).to_i - 2).clamp(1, 64)
+					(ENV.fetch("CRYSTAL_WORKERS", System.cpu_count.to_i32).to_i).clamp(1, 64)
 				end
 			{% else %}
 				private def concurrency
@@ -663,7 +705,7 @@ module Pickout
 
 		def initialize(matches : Iterator(Match), @limit : Int32)
 			heap = MinHeap(Match, FuzzyScore).new(@limit)
-			entries = Array(Entry).new(50_000)
+			entries = Array(Entry).new(500_000)
 			matches.each do |match|
 				heap.push(match, match.score)
 				entries.push(match.entry)
