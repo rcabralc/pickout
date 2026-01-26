@@ -307,8 +307,8 @@ while true; do
 
 	# If the item is an existing file, open it and quit.
 	if [ -f "$item" ]; then
-		# Use user's editor if the file looks like text.
-		if file -brk "$item" | grep -q -P "(Unicode|ASCII) text"; then
+		# Use user's editor if the file looks like text or is empty.
+		if file -brk "$item" | grep -q -P "(Unicode|ASCII) text|empty"; then
 			open_with_editor "$editor" "$item"
 		fi
 
