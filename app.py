@@ -67,6 +67,8 @@ class Filter(QObject):
 	@Slot()
 	def _flush_requests(self):
 		self._logger.print('filter: flushing requests')
+		while not self._connected:
+			time.sleep(0.02)
 		while self._requests:
 			req = self._requests.pop(0)
 			self._logger.print(f'filter: flushing {req!r}')
@@ -95,20 +97,23 @@ class Filter(QObject):
 			stderr=sys.stderr
 		)
 		self._port = int(self._process.stdout.readline())
-		self._logger.print(f'filter: connecting to port {self._port}')
+		self._connected = False
 		self._socket = QTcpSocket()
 		self._socket.errorOccurred.connect(self._handle_error)
 		self._socket.readyRead.connect(self._handle_response)
 		self._connect()
 
 	def _connect(self):
+		self._logger.print(f'filter: connecting to port {self._port}')
 		self._socket.connectToHost('127.0.0.1', self._port)
+		self._connected = True
 		self._logger.print(f'filter: connected to port {self._port}')
 
 	@Slot()
 	def _stop(self):
 		if self._socket is not None:
 			self._socket.disconnectFromHost()
+			self._connected = False
 			self._socket = None
 		if self._process is not None:
 			self._process.terminate()
