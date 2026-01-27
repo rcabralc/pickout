@@ -4,8 +4,8 @@ require "json"
 module Pickout
 	class Cache(K, T)
 		def initialize(
-			@entries : Array(Entry),
-			&@refilter : Array(Entry), K -> Result(T)
+			@entries : Slice(Entry),
+			&@refilter : Slice(Entry), K -> Result(T)
 		)
 			@cache = {} of K => Hit(K, T)
 		end
@@ -34,7 +34,7 @@ module Pickout
 		end
 
 		class Result(T)
-			def initialize(@thing : T, &@entries : T -> Array(Entry))
+			def initialize(@thing : T, &@entries : T -> Slice(Entry))
 			end
 
 			def entries
@@ -53,7 +53,7 @@ module Pickout
 		class Hit(K, T)
 			getter :result, :entries, :weight, :key
 
-			@entries : Array(Entry)
+			@entries : Slice(Entry)
 
 			def initialize(@key : K, @result : Result(T))
 				@entries = @result.entries

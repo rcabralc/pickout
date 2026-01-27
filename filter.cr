@@ -56,21 +56,17 @@ module Pickout
 	end
 
 	class Filter
-		def self.start_from_arguments
+		def self.start_from_arguments : Nil
 			arguments = parse_arguments
 			source = arguments[:source]
 			limit = arguments[:limit]
 			json_input = arguments[:json_input]
 			factory = json_input ? JSONEntries : LineEntries
 
-			if source.nil?
-				entries = factory.new(STDIN)
-				new(entries.to_a, limit).start
-			else
-				Process.run(source, shell: true) do |process|
-					entries = factory.new(process.output)
-					new(entries.to_a, limit).start
-				end
+			return new(factory.new(STDIN), limit).start if source.nil?
+
+			Process.run(source, shell: true) do |process|
+				new(factory.new(process.output), limit).start
 			end
 		end
 
@@ -124,11 +120,14 @@ module Pickout
 			{json_input: json_input, limit: limit, source: source}
 		end
 
-		def initialize(entries : Array(Entry), limit : Int32)
+		def initialize(entries : Iterator(Entry), limit : Int32)
+			entries_ary = entries.to_a
+			entries_slice = entries_ary.to_unsafe.to_slice(entries_ary.size)
+
 			@cache = Cache(
 				CompositePattern,
 				Ranking
-			).new(entries) do |cache_entries, pattern|
+			).new(entries_slice) do |cache_entries, pattern|
 				matches = Matches.new(cache_entries, pattern)
 				ranking = Ranking.new(matches, limit)
 				Cache::Result(Ranking).new(ranking, &.entries)

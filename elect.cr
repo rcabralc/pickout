@@ -700,7 +700,7 @@ module Pickout
 
 		include Enumerable(Match)
 
-		@entries : Array(Entry)
+		@entries : Slice(Entry)
 		@reversed : Slice(Match)
 
 		def initialize(matches : Iterator(Match), @limit : Int32)
@@ -710,7 +710,7 @@ module Pickout
 				heap.push(match, match.score)
 				entries.push(match.entry)
 			end
-			@entries = entries
+			@entries = entries.to_unsafe.to_slice(entries.size)
 			@reversed = heap.to_slice!
 		end
 
