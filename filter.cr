@@ -6,13 +6,13 @@ require "socket"
 module Pickout
 	alias EntryData = Hash(String, JSON::Any)
 
-	class EntryWithData < Entry
+	class Entry
 		getter data
 
-		@data : EntryData
+		@data = EntryData.new
 
-		def initialize(index : Int32, value : String, @data = EntryData.new)
-			super(index, value)
+		def initialize(index : Int32, value : String, @data : EntryData)
+			initialize(index, value)
 		end
 	end
 
@@ -27,7 +27,7 @@ module Pickout
 
 		def next
 			while (line = @stream.gets(chomp: true))
-				return EntryWithData.new(@index &+= 1, line) unless line.empty?
+				return Entry.new(@index &+= 1, line) unless line.empty?
 			end
 
 			stop
@@ -48,7 +48,7 @@ module Pickout
 			while (@index &+= 1) < @raw_entries.size
 				data = @raw_entries[@index]
 				value = data["value"].as_s
-				return EntryWithData.new(@index, value, data: data) unless value.empty?
+				return Entry.new(@index, value, data: data) unless value.empty?
 			end
 
 			stop
@@ -164,7 +164,7 @@ module Pickout
 			filtered = result.size
 			total = @cache.size
 			items = result.unwrap.map do |match|
-				entry = match.entry.as(EntryWithData)
+				entry = match.entry
 				{
 					data: entry.data,
 					index: entry.index,
