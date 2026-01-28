@@ -9,7 +9,7 @@ module Pickout
 	CONSECUTIVE_MATCH_SCORE_BONUS = 10
 
 	def self.search(entries, pattern)
-		Matches.new(entries, pattern).sort
+		Ranking.new(entries, limit: nil, pattern: pattern).to_a
 	end
 
 	alias FuzzyScore = Int32
@@ -602,97 +602,51 @@ module Pickout
 		end
 	end
 
-	module Matches
-		def self.new(entries : Iterator(Entry), strings : Array(String))
+	class Matches
+		include Iterator(Match)
+
+		def initialize(entries : Slice(Entry), pattern : String)
+			pattern = CompositePattern.from_strings([pattern])
+			initialize(entries, pattern)
+		end
+
+		def initialize(entries : Slice(Entry), strings : Array(String))
 			pattern = CompositePattern.from_strings(strings)
-			entries = entries.to_a
-			new(entries, pattern)
+			initialize(entries, pattern)
 		end
 
-		def self.new(entries : Iterator(Entry), pattern : String)
-			pattern = CompositePattern.from_strings([pattern])
-			entries = entries.to_a
-			new(entries, pattern)
-		end
+		def initialize(entries : Slice(Entry), @pattern : CompositePattern)
+			@matches_channel = Channel(Match).new(500_000)
+			active_workers = Atomic.new(concurrency)
+			entries_index = Atomic.new(0)
+			entries_size = entries.size
 
-		def self.new(entries : Array(Entry), pattern : String)
-			pattern = CompositePattern.from_strings([pattern])
-			new(entries, pattern)
-		end
-
-		def self.new(entries : Array(Entry), strings : Array(String))
-			pattern = CompositePattern.from_strings(strings)
-			new(entries, pattern)
-		end
-
-		def self.new(strings : Enumerable(String), pattern : String)
-			pattern = CompositePattern.from_strings([pattern])
-			entries = strings.map_with_index { |s, i| Entry.new(i, s) }
-			new(entries, pattern)
-		end
-
-		def self.new(entries : Indexable(Entry), pattern : CompositePattern)
-			if pattern.empty?
-				EmptyImpl.new(entries, pattern)
-			else
-				Impl.new(entries, pattern)
-			end
-		end
-
-		class Impl
-			include Iterator(Match)
-
-			def initialize(entries : Indexable(Entry), @pattern : CompositePattern)
-				@matches_channel = Channel(Match).new(500_000)
-				active_workers = Atomic.new(concurrency)
-				entries_index = Atomic.new(0)
-				entries_size = entries.size
-
-				active_workers.get.times do
-					spawn do
-						pat = @pattern.to_matchable
-						while (index = entries_index.add(1)) < entries_size
-							match = pat.matches?(entries[index])
-							@matches_channel.send(match) if match
-						end
-						@matches_channel.close if active_workers.sub(1) == 1
+			active_workers.get.times do
+				spawn do
+					pat = @pattern.to_matchable
+					while (index = entries_index.add(1)) < entries_size
+						match = pat.matches?(entries[index])
+						@matches_channel.send(match) if match
 					end
+				ensure
+					@matches_channel.close if active_workers.sub(1) == 1
 				end
 			end
-
-			def sort
-				to_a.sort_by! { |m| -m.score }
-			end
-
-			def next
-				@matches_channel.receive? || stop
-			end
-
-			{% if flag?(:preview_mt) %}
-				private def concurrency
-					(ENV.fetch("CRYSTAL_WORKERS", System.cpu_count.to_i32).to_i).clamp(1, 64)
-				end
-			{% else %}
-				private def concurrency
-					1
-				end
-			{% end %}
 		end
 
-		class EmptyImpl < Impl
-			include Iterator::IteratorWrapper
-
-			@iterator : Iterator(Entry)
-
-			def initialize(entries : Enumerable(Entry), @pattern : CompositePattern)
-				@iterator = entries.each
-				@matches_channel = Channel(Match).new
-			end
-
-			def next
-				Match.new(wrapped_next)
-			end
+		def next
+			@matches_channel.receive? || stop
 		end
+
+		{% if flag?(:preview_mt) %}
+			private def concurrency
+				(ENV.fetch("CRYSTAL_WORKERS", System.cpu_count.to_i32).to_i).clamp(1, 64)
+			end
+		{% else %}
+			private def concurrency
+				1
+			end
+		{% end %}
 	end
 
 	class Ranking
@@ -701,21 +655,50 @@ module Pickout
 		include Enumerable(Match)
 
 		@entries : Slice(Entry)
-		@reversed : Slice(Match)
+		@matches : Slice(Match) | Array(Match)
 
-		def initialize(matches : Iterator(Match), @limit : Int32)
-			heap = MinHeap(Match, FuzzyScore).new(@limit)
-			entries = Array(Entry).new(500_000)
-			matches.each do |match|
-				heap.push(match, match.score)
-				entries.push(match.entry)
+		def initialize(strings : Array(String), limit : Int32?, pattern)
+			entries = Slice(Entry).new(strings.size) { |i| Entry.new(i, strings[i]) }
+			initialize(entries, limit, pattern)
+		end
+
+		def initialize(entries_ary : Array(Entry), limit : Int32?, pattern)
+			entries = Slice(Entry).new(entries_ary.size) { |i| entries_ary[i] }
+			initialize(entries, limit, pattern)
+		end
+
+		def initialize(entries : Slice(Entry), limit : Int32?, pattern)
+			if pattern.empty?
+				initialize(entries, limit)
+			else
+				initialize(Matches.new(entries, pattern), limit)
 			end
-			@entries = entries.to_unsafe.to_slice(entries.size)
-			@reversed = heap.to_slice!
+		end
+
+		def initialize(matches : Iterator(Match), limit : Int32?)
+			entries = Array(Entry).new(500_000)
+			if limit
+				heap = MinHeap(Match, FuzzyScore).new(limit)
+				matches.each do |match|
+					heap.push(match, match.score)
+					entries.push(match.entry)
+				end
+				@matches = heap.to_slice!
+			else
+				matches = matches.to_a
+				matches.each { |match| entries.push(match.entry) }
+				@matches = matches.sort_by! { |m| -m.score }
+			end
+			@entries = Slice.new(entries.to_unsafe, entries.size, read_only: true)
+		end
+
+		def initialize(@entries : Slice(Entry), limit : Int32?)
+			size = Math.min(limit || @entries.size, @entries.size)
+			@matches = Slice(Match).new(size) { |i| Match.new(@entries[i]) }
 		end
 
 		def each
-			@reversed.reverse_each { |match| yield match }
+			@matches.each { |match| yield match }
 		end
 	end
 
@@ -745,12 +728,15 @@ module Pickout
 
 		def to_slice! : Slice(T)
 			build if @size < @capacity
-			Slice(T).new(@size, read_only: true) do
+			size = @size
+			content = Pointer(T).malloc(size)
+			while @size.positive?
 				root = @items[0]
 				@items[0] = @items[@size -= 1]
 				heapify(0)
-				root[0]
+				content[@size] = root[0]
 			end
+			Slice(T).new(content, size, read_only: true)
 		end
 
 		private def build

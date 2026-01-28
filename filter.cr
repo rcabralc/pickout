@@ -120,17 +120,11 @@ module Pickout
 			{json_input: json_input, limit: limit, source: source}
 		end
 
-		def initialize(entries : Iterator(Entry), limit : Int32)
-			entries_ary = entries.to_a
-			entries_slice = entries_ary.to_unsafe.to_slice(entries_ary.size)
-
-			@cache = Cache(
-				CompositePattern,
-				Ranking
-			).new(entries_slice) do |cache_entries, pattern|
-				matches = Matches.new(cache_entries, pattern)
-				ranking = Ranking.new(matches, limit)
-				Cache::Result(Ranking).new(ranking, &.entries)
+		def initialize(entries_it : Iterator(Entry), limit : Int32)
+			entries_ary = entries_it.to_a
+			entries = entries_ary.to_unsafe.to_slice(entries_ary.size)
+			@cache = Cache(CompositePattern, Ranking).new(entries) do |entries, pat|
+				Ranking.new(entries, limit, pat)
 			end
 		end
 
@@ -159,10 +153,10 @@ module Pickout
 		def filter(body)
 			input = body["input"].as(String)
 			seq = body["seq"].as(Int32)
-			result = @cache.filter(build_pattern(input))
-			filtered = result.size
+			ranking = @cache.filter(build_pattern(input))
+			filtered = ranking.entries.size
 			total = @cache.size
-			items = result.unwrap.map do |match|
+			items = ranking.map do |match|
 				entry = match.entry
 				{
 					data: entry.data,
