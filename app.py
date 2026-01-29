@@ -221,7 +221,7 @@ class Picker:
 
 		self._app = QApplication(sys.argv)
 		self._app.setApplicationName(self._app_name)
-		self._app.setDesktopFileName(f'{self._app_name}.desktop')
+		self._app.setDesktopFileName(self._app_name)
 
 		self._filter_thread = QThread()
 		self._filter = Filter(
