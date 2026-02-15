@@ -5,9 +5,10 @@ shopt -s globstar
 
 usage () {
 	echo "Usage:"
-	echo "    filepick [--accept-input|--no-accept-input]"
+	echo "    filepick [--[no-]accept-input]"
 	echo "             [--exclude=<pattern> ...]"
 	echo "             [--geometry=<geometry>]"
+	echo "             [--[no-]hidden]"
 	echo "             [--home=<home>]"
 	echo "             [--input=<input>]"
 	echo "             [--loop|--dir-opener=<opener>]"
@@ -39,6 +40,7 @@ open_with_editor () {
 
 editor=${FILEPICK_EDITOR:-${VISUAL:-${EDITOR:-vi}}}
 excludes=()
+hidden_arg=--hidden
 while [ "$#" -gt 0 ]; do
 	case $1 in
 		--accept-input)
@@ -84,9 +86,10 @@ while [ "$#" -gt 0 ]; do
 			echo "    --dir-opener=<opener>"
 			echo "                     program used to open directories (default: xdg-open)."
 			echo "    --exclude=<pattern>"
-			echo "                     fd(1) option: --exclude (multiple can be given)."
+			echo "                     fd(1) option --exclude (multiple can be given)."
 			echo "    --geometry=<geometry>"
 			echo "                     pickout option --qwindowgeometry."
+			echo "    --[no-]-hidden   sets or resets fd(1) option --hidden. Default is --hidden."
 			echo "    --home=<home>    pickout option --home."
 			echo "    --input=<input>  pickout option --input."
 			echo "    --loop           directories start a new session, loop until a non-directory is selected/entered."
@@ -123,6 +126,13 @@ while [ "$#" -gt 0 ]; do
 			geometry="$1"
 			;;
 
+		--hidden)
+			hidden_arg=--hidden
+			;;
+		--no-hidden)
+			hidden_arg=
+			;;
+
 		# Contrary to other options, --home and --input accept an empty
 		# argument. They can be set to an empty string and reset to a non-empty
 		# string, but the opposite is not allowed.
@@ -148,7 +158,7 @@ while [ "$#" -gt 0 ]; do
 			;;
 
 		--loop)
-			loop="true"
+			loop=true
 			;;
 
 		--mode=*)
@@ -233,7 +243,7 @@ root=${root:-$HOME}
 title=${title:-"Select file${title_suffix}…"}
 [ -n "$geometry" ] && geometry_arg="--qwindowgeometry $geometry"
 
-fd_options=". --type file --follow --hidden --no-ignore-vcs"
+fd_options=". --type file --follow $hidden_arg --no-ignore-vcs"
 
 # $input is taken as a filesystem path. Make sure its directory is not excluded.
 [ -f "${input}" ] && input_dir=$(dirname "${input}")
@@ -308,7 +318,7 @@ while true; do
 	# If the item is an existing file, open it and quit.
 	if [ -f "$item" ]; then
 		# Use user's editor if the file looks like text or is empty.
-		if file -brk "$item" | grep -q -P "(Unicode|ASCII) text|empty"; then
+		if file -Lbrk "$item" | grep -q -P "(Unicode|ASCII) text|empty"; then
 			open_with_editor "$editor" "$item"
 		fi
 
