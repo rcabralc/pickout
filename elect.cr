@@ -44,6 +44,8 @@ module Pickout
 	end
 
 	class Match
+		include Comparable(Match)
+
 		getter entry, score
 		protected getter indices
 
@@ -55,6 +57,10 @@ module Pickout
 		end
 
 		def initialize(@entry, @score, @indices)
+		end
+
+		def <=>(other : Match)
+			@score <=> other.score
 		end
 
 		def merge(other)
@@ -370,7 +376,7 @@ module Pickout
 				j &-= 1
 			end
 
-		Match.new(entry, s[p, q], Slice.new(indices, p, read_only: true))
+			Match.new(entry, s[p, q], Slice.new(indices, p, read_only: true))
 		end
 
 		macro compute_scores(
@@ -678,9 +684,9 @@ module Pickout
 		def initialize(matches : Iterator(Match), limit : Int32?)
 			entries = Array(Entry).new(500_000)
 			if limit
-				heap = MinHeap(Match, FuzzyScore).new(limit)
+				heap = MinHeap(Match).new(limit)
 				matches.each do |match|
-					heap.push(match, match.score)
+					heap.push(match)
 					entries.push(match.entry)
 				end
 				@matches = heap.to_slice!
@@ -702,26 +708,25 @@ module Pickout
 		end
 	end
 
-	class MinHeap(T, K)
-		@items : Slice(Tuple(T, K))
+	class MinHeap(T)
+		@items : Slice(T)
 
 		def initialize(@capacity : Int32)
 			@size = 0
-			items = Pointer(Tuple(T, K)).malloc(@capacity)
-			@items = Slice.new(items, @capacity)
+			@items = Slice.new(Pointer(T).malloc(@capacity), @capacity)
 		end
 
-		def push(item, key : K)
+		def push(item : T)
 			if @size == @capacity
-				return if key <= @items[0][1]
+				return if item <= @items[0]
 
-				@items[0] = {item, key}
+				@items[0] = item
 				heapify(0)
 
 				return
 			end
 
-			@items[@size] = {item, key}
+			@items[@size] = item
 			@size &+= 1
 			build if @size == @capacity
 		end
@@ -734,7 +739,7 @@ module Pickout
 				root = @items[0]
 				@items[0] = @items[@size -= 1]
 				heapify(0)
-				content[@size] = root[0]
+				content[@size] = root
 			end
 			Slice(T).new(content, size, read_only: true)
 		end
@@ -747,8 +752,8 @@ module Pickout
 			l = (i << 1) &+ 1
 			r = (i &+ 1) << 1
 			smallest = i
-			smallest = l if l < @size && @items[l][1] < @items[smallest][1]
-			smallest = r if r < @size && @items[r][1] < @items[smallest][1]
+			smallest = l if l < @size && @items[l] < @items[smallest]
+			smallest = r if r < @size && @items[r] < @items[smallest]
 			if smallest != i
 				@items[i], @items[smallest] = @items[smallest], @items[i]
 				heapify(smallest)
