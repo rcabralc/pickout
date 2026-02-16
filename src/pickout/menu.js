@@ -136,6 +136,14 @@
 						title.append(span)
 					})
 
+					if (item.score != null) {
+						const score = document.createElement('span')
+						score.classList.add('score')
+						score.append(item.score)
+						title.append(' ')
+						title.append(score)
+					}
+
 					cell.append(title)
 
 					const subtext = document.createElement('p')
@@ -159,6 +167,13 @@
 							cells[cells.length - 1].append(span)
 						})
 					})
+
+					if (item.score != null) {
+						const score = document.createElement('span')
+						score.classList.add('score')
+						score.append(item.score)
+						cells[cells.length - 1].append(' ', score)
+					}
 				}
 
 				cells[cells.length - 1].setAttribute('rolspan', Math.max(1, 11 - cells.length))
@@ -419,7 +434,7 @@
 				filterTimeout = null
 				pending++
 				menu.filter(++seq, filterText)
-			}, pending * 50)
+			}, pending * 50 || 50)
 		}
 
 		function history (index, value) {

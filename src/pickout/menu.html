@@ -131,7 +131,8 @@
 			#prompt-box.not-found .input,
 			#prompt-box .prompt .text,
 			#counters.over-limit .filtered,
-			#entries tr .subtext {
+			#entries tr .subtext,
+			#entries tr .score {
 				color: rgb(var(--color) / 0.6);
 			}
 
@@ -165,6 +166,10 @@
 				font-size: 85%;
 			}
 
+			#entries tr .score {
+				font-size: 75%;
+			}
+
 			#entries tr.selected {
 				--color: var(--entries-selected-color);
 			}
@@ -176,7 +181,7 @@
 
 			#entries tr,
 			#entries tr .match {
-				transition: all .2s;
+				transition: background-color .3s cubic-bezier(0.34, 0.88, 0.34, 1.00);
 			}
 
 			#entries tr .match {

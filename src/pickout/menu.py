@@ -4,12 +4,16 @@ import json
 import os.path
 
 
-MAX_HISTORY_ENTRIES = 100
+MAX_HISTORY_ENTRIES = 50
 PATTERN_TYPES = ['@*', '@/']
 
 
 class History:
-	_path = os.path.join(os.path.dirname(__file__), 'history.json')
+	_data_home = os.environ.get(
+		'XDG_DATA_HOME',
+		os.path.expanduser('~/.local/share')
+	)
+	_path = os.path.join(_data_home, 'pickout', 'history.json')
 
 	@classmethod
 	def build(cls, key):
@@ -25,8 +29,7 @@ class History:
 
 	def __init__(self, key):
 		self._key = key
-		self._all_entries = self._load()
-		self._entries = self._all_entries.get(self._key, [])
+		self._entries, _, _ = self._load()
 
 	def next(self, index, input):
 		if index < 0:
@@ -47,22 +50,38 @@ class History:
 		if not value:
 			return
 
+		self._entries, freqs, whole = self._load()
 		if value in self._entries:
 			self._entries.remove(value)
+		else:
+			freqs[value] = 0
+		freqs[value] += 1
 		self._entries.insert(0, value)
 		self._entries = self._entries[:MAX_HISTORY_ENTRIES]
-		self._all_entries[self._key] = self._entries
-		self._dump()
+		self._dump(self._entries, freqs, whole)
 
 	def _load(self):
 		with open(self._path, 'r') as history_file:
-			return json.loads(history_file.read())
+			try:
+				whole = json.loads(history_file.read())
+			except json.decoder.JSONDecodeError:
+				whole = {}
+			entries_with_freqs = whole.get(self._key, [])
+			entries = []
+			freqs = {}
+			for value in entries_with_freqs:
+				if type(value) == str:
+					freq = 1
+				else:
+					value, freq = value
+				freqs[value] = freq
+				entries.append(value)
+			return (entries, freqs, whole)
 
-	def _dump(self):
+	def _dump(self, entries, freqs, whole):
 		with open(self._path, 'w') as history_file:
-			history_file.write(
-				json.dumps(self._all_entries, indent=2, sort_keys=True)
-			)
+			whole[self._key] = [[v, freqs[v]] for v in entries]
+			history_file.write(json.dumps(whole, indent=2, sort_keys=True))
 
 
 class HistoryEntry:
@@ -84,6 +103,7 @@ class Menu(QObject):
 
 	def __init__(
 			self,
+			view,
 			filter,
 			logger,
 			sep=None,
@@ -96,7 +116,7 @@ class Menu(QObject):
 			prompt='',
 			**kw
 		):
-		super().__init__()
+		super().__init__(view)
 		self._logger = logger
 		self._history = History.build(history_key)
 		self._completion_sep = sep

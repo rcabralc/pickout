@@ -1,4 +1,4 @@
-from menu import Menu
+from pickout.menu import Menu
 from PySide6.QtCore import QEvent
 from PySide6.QtCore import QObject
 from PySide6.QtCore import Qt
@@ -36,6 +36,8 @@ class Filter(QObject):
 		super().__init__()
 
 		self.moveToThread(thread)
+		thread.started.connect(self._start)
+		thread.finished.connect(self._stop)
 
 		self._logger = logger
 		self._source = source
@@ -44,9 +46,6 @@ class Filter(QObject):
 		self._requests = []
 		self.refreshed.connect(self._refresh)
 		self.requested.connect(self._request)
-
-		thread.started.connect(self._start)
-		thread.finished.connect(self._stop)
 
 	@Slot(dict)
 	def _refresh(self, payload):
@@ -129,7 +128,11 @@ class Filter(QObject):
 			res = json.loads(line.decode(self._enc))
 			req = res['request']
 			self._logger.print(f'filter: handling response to command {req!r}')
-			self.response.emit(res)
+			command = res['command']
+			if command == 'pick':
+				self.picked.emit(res)
+			else:
+				self.response.emit(res)
 
 	@Slot()
 	def _handle_error(self, error):
@@ -147,34 +150,31 @@ class MainView(QWebEngineView):
 	_basedir = os.path.dirname(__file__)
 	_activated = False
 
-	def __init__(self, logger, menu):
+	def __init__(self, picker, filter, logger, **options):
 		super().__init__()
+		self._picker = picker
 		self._logger = logger
-		self._menu = menu
+		self._menu = menu = Menu(self, filter, logger, **options)
+		self._channel = QWebChannel()
+		self._channel.registerObject('bridge', self._menu)
+		self.loadFinished.connect(self._run_js)
+		self.setWindowFlags(Qt.WindowStaysOnTopHint)
 
 		with open(os.path.join(self._basedir, 'menu.html')) as f:
 			template = Template(f.read())
+			page = self.page()
+			page.setHtml(self._get_theme().html(template.html(menu.prompt)))
+			page.setWebChannel(self._channel)
 
-		with open(os.path.join(self._basedir, 'menu.js')) as f:
-			frontend_source = f.read()
-
-		self._channel = QWebChannel()
-		self._channel.registerObject('bridge', self._menu)
-		self._apply_theme()
-
-		page = self.page()
-		page.setHtml(template.html(self._theme, menu.prompt))
-		page.setWebChannel(self._channel)
-
-		self.loadFinished.connect(lambda: page.runJavaScript(frontend_source))
-		self.setWindowFlags(Qt.WindowStaysOnTopHint)
+		self._update_styles()
+		self._menu.picked.connect(self._picker.picked)
 
 	def changeEvent(self, event):
 		type = event.type()
 		if type == QEvent.ActivationChange and not self._activated:
 			self._activated = True
 		if type in [QEvent.PaletteChange, QEvent.FontChange]:
-			self._apply_theme()
+			self._update_styles()
 		return super().changeEvent(event)
 
 	def closeEvent(self, event):
@@ -182,8 +182,8 @@ class MainView(QWebEngineView):
 			self._menu.picked.emit([])
 		return super().closeEvent(event)
 
-	def _apply_theme(self):
-		self._theme = theme = Theme(self.palette())
+	def _update_styles(self):
+		theme = self._get_theme()
 
 		if self._activated:
 			self._menu.themed.emit([[k, v] for k, v in theme.items()])
@@ -199,6 +199,13 @@ class MainView(QWebEngineView):
 		settings = page.settings()
 		settings.setFontFamily(QWebEngineSettings.StandardFont, font.family())
 		settings.setFontSize(QWebEngineSettings.DefaultFontSize, font_size)
+
+	def _get_theme(self):
+		return Theme(self.palette())
+
+	def _run_js(self):
+		with open(os.path.join(self._basedir, 'menu.js')) as f:
+			self.page().runJavaScript(f.read())
 
 
 class Picker:
@@ -216,7 +223,6 @@ class Picker:
 		):
 		self._json_input = json_input
 		self._json_output = json_output
-		self._options = self._fix_options(**options)
 		self._logger = logger
 
 		self._app = QApplication(sys.argv)
@@ -224,17 +230,20 @@ class Picker:
 		self._app.setDesktopFileName(self._app_name)
 
 		self._filter_thread = QThread()
-		self._filter = Filter(
+		filter = Filter(
 			logger,
 			self._filter_thread,
 			source,
 			limit or self._default_limit,
 			json_input,
 		)
-		self._menu = Menu(self._filter, logger, **self._options)
-		self._menu.picked.connect(self._picked)
 
-		self._view = MainView(self._logger, self._menu)
+		self._view = MainView(
+			self,
+			filter,
+			self._logger,
+			**self._fix_options(**options)
+		)
 
 	def exec(self):
 		signal.signal(signal.SIGINT, lambda s, f: self.exit(1))
@@ -252,7 +261,7 @@ class Picker:
 		self._filter_thread.wait()
 		self._app.exit(code)
 
-	def _picked(self, selection):
+	def picked(self, selection):
 		if not selection:
 			self.exit(1)
 			return
@@ -287,11 +296,8 @@ class Template:
 	def __init__(self, code):
 		self._code = code
 
-	def html(self, theme, prompt):
-		code = self._code
-		for key, value in theme.items():
-			code = re.sub(f'{key}: [^;]*;', f'{key}: {value};', code, 1)
-		return code.replace('%(prompt)s', prompt and f'{prompt} ' or '')
+	def html(self, prompt):
+		return self._code.replace('%(prompt)s', prompt and f'{prompt} ' or '')
 
 
 class Theme:
@@ -300,6 +306,11 @@ class Theme:
 
 	def items(self):
 		return self._default_colors().items()
+
+	def html(self, html):
+		for key, value in self.items():
+			html = re.sub(f'{key}: [^;]*;', f'{key}: {value};', html, 1)
+		return html
 
 	@property
 	def background_color(self):

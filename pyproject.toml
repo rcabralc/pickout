@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pickout"
+version = "0.1.0"
+description = "A fuzzy-matching filtering engine with a Qt GUI"
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "Pickout Contributors"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "docopt>=0.6.2",
+    "PySide6>=6.10.2",
+]
+
+[project.scripts]
+pickout = "pickout:main"
+
+[tool.setuptools]
+package-dir = {"pickout" = "src/pickout"}
+
+[tool.setuptools.package-data]
+pickout = ["menu.html", "menu.js", "filter"]
