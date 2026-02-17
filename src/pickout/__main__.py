@@ -140,8 +140,9 @@ Key bindings:
         Switch between fuzzy and regexp patterns.
 """
 
-from pickout.app import run
 from docopt import docopt
+from pickout.app import run
+from pickout.webenginegui import View
 
 import sys
 
@@ -151,6 +152,7 @@ def main():
     logger = streamlogger(sys.stderr if args['--debug'] else None)
 
     sys.exit(run(
+    	View,
         logger=logger,
         accept_input=args['--accept-input'],
         big_word_delimiters=args['--big-word-delimiters'],

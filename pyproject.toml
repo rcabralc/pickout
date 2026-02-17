@@ -24,4 +24,4 @@ pickout = "pickout:main"
 package-dir = {"pickout" = "src/pickout"}
 
 [tool.setuptools.package-data]
-pickout = ["menu.html", "menu.js", "filter"]
+pickout = ["view.html", "filter"]

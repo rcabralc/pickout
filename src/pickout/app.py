@@ -1,26 +1,107 @@
-from pickout.menu import Menu
-from PySide6.QtCore import QEvent
 from PySide6.QtCore import QObject
-from PySide6.QtCore import Qt
-from PySide6.QtCore import QThread
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QProcess
 from PySide6.QtCore import Signal
 from PySide6.QtCore import Slot
-from PySide6.QtGui import QPalette
 from PySide6.QtNetwork import QAbstractSocket
 from PySide6.QtNetwork import QTcpSocket
-from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtWebEngineCore import QWebEngineSettings
-from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication
-from subprocess import PIPE, Popen
 
 import json
 import os
-import re
 import signal
 import sys
 import time
+
+
+MAX_HISTORY_ENTRIES = 50
+
+
+class History:
+	_data_home = os.environ.get(
+		'XDG_DATA_HOME',
+		os.path.expanduser('~/.local/share')
+	)
+	_path = os.path.join(_data_home, 'pickout', 'history.json')
+
+	@classmethod
+	def build(cls, key):
+		if not key:
+			return NullHistory()
+
+		if not os.path.exists(cls._path):
+			os.makedirs(os.path.dirname(cls._path), exist_ok=True)
+			with open(cls._path, 'w') as f:
+				f.write(json.dumps({}))
+
+		return cls(key)
+
+	def __init__(self, key):
+		self._key = key
+		self._entries, _, _ = self._load()
+
+	def next(self, index, input):
+		if index < 0:
+			return
+		entries = self._entries[:index]
+		for index, value in reversed(list(enumerate(entries))):
+			if value.startswith(input):
+				return HistoryEntry(index, value)
+		return HistoryEntry(-1, input)
+
+	def prev(self, index, input):
+		entries = self._entries[index + 1:]
+		for i, value in enumerate(entries):
+			if value.startswith(input):
+				return HistoryEntry(i + index + 1, value)
+
+	def add(self, value):
+		if not value:
+			return
+
+		self._entries, freqs, whole = self._load()
+		if value in self._entries:
+			self._entries.remove(value)
+		else:
+			freqs[value] = 0
+		freqs[value] += 1
+		self._entries.insert(0, value)
+		self._entries = self._entries[:MAX_HISTORY_ENTRIES]
+		self._dump(self._entries, freqs, whole)
+
+	def _load(self):
+		with open(self._path, 'r') as history_file:
+			try:
+				whole = json.loads(history_file.read())
+			except json.decoder.JSONDecodeError:
+				whole = {}
+			entries_with_freqs = whole.get(self._key, [])
+			entries = []
+			freqs = {}
+			for value in entries_with_freqs:
+				if type(value) == str:
+					freq = 1
+				else:
+					value, freq = value
+				freqs[value] = freq
+				entries.append(value)
+			return (entries, freqs, whole)
+
+	def _dump(self, entries, freqs, whole):
+		with open(self._path, 'w') as history_file:
+			whole[self._key] = [[v, freqs[v]] for v in entries]
+			history_file.write(json.dumps(whole, indent=2, sort_keys=True))
+
+
+class NullHistory:
+	def prev(self, index, input): return
+	def next(self, index, input): return
+	def add(self, _): return
+
+
+class HistoryEntry:
+	def __init__(self, index, value):
+		self.index = index
+		self.value = value
 
 
 class Filter(QObject):
@@ -29,16 +110,13 @@ class Filter(QObject):
 	response = Signal(dict)
 	_enc = 'utf-8'
 	_path = os.path.join(os.path.dirname(__file__), 'filter')
-	_process = _socket = _command = None
+	_process = _socket = None
+	_port = None
+	_connected = False
 	_connection_retries = 100
 
-	def __init__(self, logger, thread, source, limit, json_input):
+	def __init__(self, logger, source, limit, json_input):
 		super().__init__()
-
-		self.moveToThread(thread)
-		thread.started.connect(self._start)
-		thread.finished.connect(self._stop)
-
 		self._logger = logger
 		self._source = source
 		self._limit = limit
@@ -53,21 +131,19 @@ class Filter(QObject):
 			return
 
 		if self._source is not None:
-			self._start()
+			self.start()
 
 		self._request(payload)
 
 	@Slot(dict)
 	def _request(self, payload):
 		self._requests.append(payload)
-		if self._process is not None:
+		if self._connected:
 			self._flush_requests()
 
 	@Slot()
 	def _flush_requests(self):
 		self._logger.print('filter: flushing requests')
-		while not self._connected:
-			time.sleep(0.02)
 		while self._requests:
 			req = self._requests.pop(0)
 			self._logger.print(f'filter: flushing {req!r}')
@@ -75,51 +151,71 @@ class Filter(QObject):
 			self._socket.write(data + b'\n')
 
 	@Slot()
-	def _start(self):
-		self._stop()
+	def start(self):
+		self.stop()
 
 		args = [self._path, '--limit', str(self._limit)]
 
-		if self._source is None:
-			stdin = sys.stdin
-		else:
-			stdin = None
+		if self._source is not None:
 			args.extend(['--source', self._source])
 
 		if self._json_input:
 			args.append('--json-input')
 
-		self._process = Popen(
-			args,
-			stdin=stdin,
-			stdout=PIPE,
-			stderr=sys.stderr
+		self._process = QProcess()
+		self._process.setReadChannel(QProcess.StandardOutput)
+		self._process.readyReadStandardOutput.connect(
+			self._handle_process_output
 		)
-		self._port = int(self._process.stdout.readline())
-		self._connected = False
-		self._socket = QTcpSocket()
-		self._socket.errorOccurred.connect(self._handle_error)
-		self._socket.readyRead.connect(self._handle_response)
-		self._connect()
+		self._process.finished.connect(self._handle_process_finished)
+
+		if self._source is None:
+			self._process.setInputChannelMode(
+				QProcess.ForwardedInputChannel
+			)
+
+		self._process.start(args[0], args[1:])
 
 	def _connect(self):
 		self._logger.print(f'filter: connecting to port {self._port}')
 		self._socket.connectToHost('127.0.0.1', self._port)
 		self._connected = True
+		self._flush_requests()
 		self._logger.print(f'filter: connected to port {self._port}')
 
 	@Slot()
-	def _stop(self):
+	def _handle_process_output(self):
+		if self._port is not None:
+			return
+
+		data = self._process.readLine().data().decode(self._enc).strip()
+		if data:
+			self._port = int(data)
+			self._socket = QTcpSocket()
+			self._socket.errorOccurred.connect(self._handle_error)
+			self._socket.readyRead.connect(self._handle_response)
+			self._connect()
+
+	@Slot(int, QProcess.ExitStatus)
+	def _handle_process_finished(self, exit_code, exit_status):
+		self._logger.print(
+			f'filter: process finished with exit code {exit_code}'
+		)
+		self._process = None
+
+	@Slot()
+	def stop(self):
 		if self._socket is not None:
 			self._socket.disconnectFromHost()
 			self._connected = False
 			self._socket = None
 		if self._process is not None:
 			self._process.terminate()
+			if not self._process.waitForFinished(5000):
+				self._process.kill()
+				self._process.waitForFinished(1000)
 			self._process = None
-		if self._command is not None:
-			self._command.terminate()
-			self._command = None
+		self._port = None
 
 	@Slot()
 	def _handle_response(self):
@@ -128,11 +224,7 @@ class Filter(QObject):
 			res = json.loads(line.decode(self._enc))
 			req = res['request']
 			self._logger.print(f'filter: handling response to command {req!r}')
-			command = res['command']
-			if command == 'pick':
-				self.picked.emit(res)
-			else:
-				self.response.emit(res)
+			self.response.emit(res)
 
 	@Slot()
 	def _handle_error(self, error):
@@ -146,74 +238,14 @@ class Filter(QObject):
 		sys.stderr.write('\n')
 
 
-class MainView(QWebEngineView):
-	_basedir = os.path.dirname(__file__)
-	_activated = False
-
-	def __init__(self, picker, filter, logger, **options):
-		super().__init__()
-		self._picker = picker
-		self._logger = logger
-		self._menu = menu = Menu(self, filter, logger, **options)
-		self._channel = QWebChannel()
-		self._channel.registerObject('bridge', self._menu)
-		self.loadFinished.connect(self._run_js)
-		self.setWindowFlags(Qt.WindowStaysOnTopHint)
-
-		with open(os.path.join(self._basedir, 'menu.html')) as f:
-			template = Template(f.read())
-			page = self.page()
-			page.setHtml(self._get_theme().html(template.html(menu.prompt)))
-			page.setWebChannel(self._channel)
-
-		self._update_styles()
-		self._menu.picked.connect(self._picker.picked)
-
-	def changeEvent(self, event):
-		type = event.type()
-		if type == QEvent.ActivationChange and not self._activated:
-			self._activated = True
-		if type in [QEvent.PaletteChange, QEvent.FontChange]:
-			self._update_styles()
-		return super().changeEvent(event)
-
-	def closeEvent(self, event):
-		if self._menu is not None:
-			self._menu.picked.emit([])
-		return super().closeEvent(event)
-
-	def _update_styles(self):
-		theme = self._get_theme()
-
-		if self._activated:
-			self._menu.themed.emit([[k, v] for k, v in theme.items()])
-
-		page = self.page()
-		page.setBackgroundColor(theme.background_color)
-
-		font = QApplication.font()
-		font_size = font.pixelSize()
-		if font_size == -1:
-			dpi = self.screen().logicalDotsPerInch()
-			font_size = round(dpi * font.pointSizeF() / 72.0)
-		settings = page.settings()
-		settings.setFontFamily(QWebEngineSettings.StandardFont, font.family())
-		settings.setFontSize(QWebEngineSettings.DefaultFontSize, font_size)
-
-	def _get_theme(self):
-		return Theme(self.palette())
-
-	def _run_js(self):
-		with open(os.path.join(self._basedir, 'menu.js')) as f:
-			self.page().runJavaScript(f.read())
-
-
 class Picker:
 	_default_limit = 50
 	_app_name = 'pickout'
+	_filter = None
 
 	def __init__(
 			self,
+			view_type,
 			logger,
 			limit=None,
 			json_input=False,
@@ -229,36 +261,29 @@ class Picker:
 		self._app.setApplicationName(self._app_name)
 		self._app.setDesktopFileName(self._app_name)
 
-		self._filter_thread = QThread()
-		filter = Filter(
+		self._filter = Filter(
 			logger,
-			self._filter_thread,
 			source,
 			limit or self._default_limit,
 			json_input,
 		)
 
-		self._view = MainView(
+		self._view = view_type(
 			self,
-			filter,
+			self._filter,
 			self._logger,
 			**self._fix_options(**options)
 		)
 
 	def exec(self):
 		signal.signal(signal.SIGINT, lambda s, f: self.exit(1))
-		QTimer.singleShot(0, self._filter_thread.start)
-
-		self._keep_event_loop_active = QTimer()
-		self._keep_event_loop_active.timeout.connect(lambda: None)
-		self._keep_event_loop_active.start(100)
+		self._filter.start()
 
 		self._view.show()
 		return self._app.exec()
 
 	def exit(self, code):
-		self._filter_thread.quit()
-		self._filter_thread.wait()
+		self._filter.stop()
 		self._app.exit(code)
 
 	def picked(self, selection):
@@ -280,58 +305,20 @@ class Picker:
 			completion_sep='',
 			home=None,
 			big_word_delimiters=None,
+			history_key=None,
 			word_delimiters=None,
 			**kw
 		):
+		history = History.build(history_key)
 		return dict(
 			delimiters=list(set((word_delimiters or '') + (big_word_delimiters or ''))),
 			big_delimiters=list(big_word_delimiters or ''),
+			history=history,
 			home_input=home,
 			sep=completion_sep,
 			**kw
 		)
 
 
-class Template:
-	def __init__(self, code):
-		self._code = code
-
-	def html(self, prompt):
-		return self._code.replace('%(prompt)s', prompt and f'{prompt} ' or '')
-
-
-class Theme:
-	def __init__(self, palette):
-		self._palette = palette
-
-	def items(self):
-		return self._default_colors().items()
-
-	def html(self, html):
-		for key, value in self.items():
-			html = re.sub(f'{key}: [^;]*;', f'{key}: {value};', html, 1)
-		return html
-
-	@property
-	def background_color(self):
-		return self._palette.color(QPalette.Active, QPalette.Window)
-
-	def _default_colors(self):
-		return {
-			"--background-color": self._rgb(self.background_color),
-			"--color": self._color('WindowText'),
-			"--entries-selected-background-color": self._color('Highlight'),
-			"--entries-selected-color": self._color('HighlightedText'),
-			"--input-background-color": self._color('AlternateBase'),
-		}
-
-	def _color(self, role_name, disabled=False, inactive=False):
-		role = getattr(QPalette, role_name)
-		return self._rgb(self._palette.color(QPalette.Active, role))
-
-	def _rgb(self, color):
-		return "%d %d %d" % (color.red(), color.green(), color.blue())
-
-
-def run(**kw):
-	return Picker(**kw).exec()
+def run(View, **kw):
+	return Picker(View, **kw).exec()

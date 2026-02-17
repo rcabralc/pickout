@@ -1,93 +1,20 @@
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QEvent
+from PySide6.QtCore import QObject
+from PySide6.QtCore import Qt
+from PySide6.QtCore import Signal
+from PySide6.QtCore import Slot
+from PySide6.QtGui import QPalette
+from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtWebEngineCore import QWebEngineSettings
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import QApplication
 
 import json
 import os.path
+import re
 
 
-MAX_HISTORY_ENTRIES = 50
 PATTERN_TYPES = ['@*', '@/']
-
-
-class History:
-	_data_home = os.environ.get(
-		'XDG_DATA_HOME',
-		os.path.expanduser('~/.local/share')
-	)
-	_path = os.path.join(_data_home, 'pickout', 'history.json')
-
-	@classmethod
-	def build(cls, key):
-		if not key:
-			return NullHistory()
-
-		if not os.path.exists(cls._path):
-			os.makedirs(os.path.dirname(cls._path), exist_ok=True)
-			with open(cls._path, 'w') as f:
-				f.write(json.dumps({}))
-
-		return cls(key)
-
-	def __init__(self, key):
-		self._key = key
-		self._entries, _, _ = self._load()
-
-	def next(self, index, input):
-		if index < 0:
-			return
-		entries = self._entries[:index]
-		for index, value in reversed(list(enumerate(entries))):
-			if value.startswith(input):
-				return HistoryEntry(index, value)
-		return HistoryEntry(-1, input)
-
-	def prev(self, index, input):
-		entries = self._entries[index + 1:]
-		for i, value in enumerate(entries):
-			if value.startswith(input):
-				return HistoryEntry(i + index + 1, value)
-
-	def add(self, value):
-		if not value:
-			return
-
-		self._entries, freqs, whole = self._load()
-		if value in self._entries:
-			self._entries.remove(value)
-		else:
-			freqs[value] = 0
-		freqs[value] += 1
-		self._entries.insert(0, value)
-		self._entries = self._entries[:MAX_HISTORY_ENTRIES]
-		self._dump(self._entries, freqs, whole)
-
-	def _load(self):
-		with open(self._path, 'r') as history_file:
-			try:
-				whole = json.loads(history_file.read())
-			except json.decoder.JSONDecodeError:
-				whole = {}
-			entries_with_freqs = whole.get(self._key, [])
-			entries = []
-			freqs = {}
-			for value in entries_with_freqs:
-				if type(value) == str:
-					freq = 1
-				else:
-					value, freq = value
-				freqs[value] = freq
-				entries.append(value)
-			return (entries, freqs, whole)
-
-	def _dump(self, entries, freqs, whole):
-		with open(self._path, 'w') as history_file:
-			whole[self._key] = [[v, freqs[v]] for v in entries]
-			history_file.write(json.dumps(whole, indent=2, sort_keys=True))
-
-
-class HistoryEntry:
-	def __init__(self, index, value):
-		self.index = index
-		self.value = value
 
 
 class Menu(QObject):
@@ -106,8 +33,8 @@ class Menu(QObject):
 			view,
 			filter,
 			logger,
+			history,
 			sep=None,
-			history_key=None,
 			accept_input=False,
 			big_delimiters=[],
 			delimiters=[],
@@ -118,7 +45,7 @@ class Menu(QObject):
 		):
 		super().__init__(view)
 		self._logger = logger
-		self._history = History.build(history_key)
+		self._history = history
 		self._completion_sep = sep
 		self._accept_input = accept_input
 		self._big_delimiters = big_delimiters
@@ -243,7 +170,99 @@ class Menu(QObject):
 			self.selected.emit(self._index, value)
 
 
-class NullHistory:
-	def prev(self, index, input): return
-	def next(self, index, input): return
-	def add(self, _): return
+class Template:
+	def __init__(self, code):
+		self._code = code
+
+	def html(self, prompt):
+		return self._code.replace('%(prompt)s', prompt and f'{prompt} ' or '')
+
+
+class Theme:
+	def __init__(self, palette):
+		self._palette = palette
+
+	def items(self):
+		return self._default_colors().items()
+
+	def html(self, html):
+		for key, value in self.items():
+			html = re.sub(f'{key}: [^;]*;', f'{key}: {value};', html, 1)
+		return html
+
+	@property
+	def background_color(self):
+		return self._palette.color(QPalette.Active, QPalette.Window)
+
+	def _default_colors(self):
+		return {
+			"--background-color": self._rgb(self.background_color),
+			"--color": self._color('WindowText'),
+			"--entries-selected-background-color": self._color('Highlight'),
+			"--entries-selected-color": self._color('HighlightedText'),
+			"--input-background-color": self._color('AlternateBase'),
+		}
+
+	def _color(self, role_name, disabled=False, inactive=False):
+		role = getattr(QPalette, role_name)
+		return self._rgb(self._palette.color(QPalette.Active, role))
+
+	def _rgb(self, color):
+		return "%d %d %d" % (color.red(), color.green(), color.blue())
+
+
+class View(QWebEngineView):
+	_basedir = os.path.dirname(__file__)
+	_activated = False
+
+	def __init__(self, picker, filter, logger, **options):
+		super().__init__()
+		self._picker = picker
+		self._logger = logger
+		self._menu = menu = Menu(self, filter, logger, **options)
+		self._channel = QWebChannel()
+		self._channel.registerObject('bridge', self._menu)
+		self.setWindowFlags(Qt.WindowStaysOnTopHint)
+
+		with open(os.path.join(self._basedir, 'view.html')) as f:
+			template = Template(f.read())
+			page = self.page()
+			page.setHtml(self._get_theme().html(template.html(menu.prompt)))
+			page.setWebChannel(self._channel)
+
+		self._update_styles()
+		self._menu.picked.connect(self._picker.picked)
+
+	def changeEvent(self, event):
+		type = event.type()
+		if type == QEvent.ActivationChange and not self._activated:
+			self._activated = True
+		if type in [QEvent.PaletteChange, QEvent.FontChange]:
+			self._update_styles()
+		return super().changeEvent(event)
+
+	def closeEvent(self, event):
+		if self._menu is not None:
+			self._menu.picked.emit([])
+		return super().closeEvent(event)
+
+	def _update_styles(self):
+		theme = self._get_theme()
+
+		if self._activated:
+			self._menu.themed.emit([[k, v] for k, v in theme.items()])
+
+		page = self.page()
+		page.setBackgroundColor(theme.background_color)
+
+		font = QApplication.font()
+		font_size = font.pixelSize()
+		if font_size == -1:
+			dpi = self.screen().logicalDotsPerInch()
+			font_size = round(dpi * font.pointSizeF() / 72.0)
+		settings = page.settings()
+		settings.setFontFamily(QWebEngineSettings.StandardFont, font.family())
+		settings.setFontSize(QWebEngineSettings.DefaultFontSize, font_size)
+
+	def _get_theme(self):
+		return Theme(self.palette())
