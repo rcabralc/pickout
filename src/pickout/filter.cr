@@ -57,13 +57,12 @@ module Pickout
 
 	class Filter
 		def self.start_from_arguments : Nil
-			arguments = parse_arguments
-			source = arguments[:source]
-			limit = arguments[:limit]
-			json_input = arguments[:json_input]
-			factory = json_input ? JSONEntries : LineEntries
+			start(**parse_arguments)
+		end
 
-			return new(factory.new(STDIN), limit).start if source.nil?
+		def self.start(source, limit, json_input)
+			factory = json_input ? JSONEntries : LineEntries
+			return new(factory.new(STDIN), limit).start unless source
 
 			Process.run(source, shell: true) do |process|
 				new(factory.new(process.output), limit).start
@@ -120,11 +119,9 @@ module Pickout
 			{json_input: json_input, limit: limit, source: source}
 		end
 
-		def initialize(entries_it : Iterator(Entry), limit : Int32)
-			entries_ary = entries_it.to_a
-			entries = entries_ary.to_unsafe.to_slice(entries_ary.size)
+		def initialize(entries : Iterator(Entry), @limit : Int32)
 			@cache = Cache(CompositePattern, Ranking).new(entries) do |entries, pat|
-				Ranking.new(entries, limit, pat)
+				Ranking.new(entries, @limit, pat)
 			end
 		end
 
@@ -220,7 +217,7 @@ module Pickout
 		end
 
 		private def build_pattern(input)
-			CompositePattern.from_strings(parse_tokens(input))
+			CompositePattern.from(parse_tokens(input))
 		end
 
 		private def parse_tokens(input)

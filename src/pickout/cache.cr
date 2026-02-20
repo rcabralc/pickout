@@ -3,20 +3,29 @@ require "json"
 
 module Pickout
 	class Cache(K, T)
-		def initialize(@entries : Slice(Entry), &@refilter : Slice(Entry), K -> T)
+		@entries : Slice(Entry)?
+
+		def initialize(
+			@entries_it : Iterator(Entry),
+			&@refilter : Slice(Entry) | Iterator(Entry), K? -> T
+		)
 			@cache = {} of K => Hit(K, T)
 		end
 
 		def filter(key : K)
 			hit = find(key)
-			return update(key, @refilter.call(@entries, key)) unless hit
+			return update(key, @refilter.call(entries, key)) unless hit
 			return hit.thing if hit.key == key
 
 			update(key, @refilter.call(hit.entries, key))
 		end
 
 		def size
-			@entries.size
+			entries.size if (entries = @entries)
+		end
+
+		private def entries
+			@entries || @entries_it
 		end
 
 		private def find(key)
@@ -26,6 +35,7 @@ module Pickout
 		end
 
 		private def update(key, thing)
+			@entries = thing.original_entries if @cache.empty?
 			@cache[key] = Hit(K, T).new(key, thing)
 			thing
 		end
