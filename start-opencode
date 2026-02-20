@@ -1,6 +1,0 @@
-#!/bin/bash
-docker run -it \
-  -v .:/workspace \
-  -v .opencode-local/data:/root/.local/share/opencode \
-  -v .opencode-local/config:/root/.config/opencode opencode \
-  "$@"
