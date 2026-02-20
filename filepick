@@ -41,6 +41,7 @@ open_with_editor () {
 editor=${FILEPICK_EDITOR:-${VISUAL:-${EDITOR:-vi}}}
 excludes=()
 hidden_arg=--hidden
+geometry=
 while [ "$#" -gt 0 ]; do
 	case $1 in
 		--accept-input)
@@ -241,6 +242,7 @@ fi
 dir_opener=${dir_opener:-xdg-open}
 root=${root:-$HOME}
 title=${title:-"Select file${title_suffix}…"}
+geometry_arg=
 [ -n "$geometry" ] && geometry_arg="--qwindowgeometry $geometry"
 
 fd_options=". --type file --follow $hidden_arg --no-ignore-vcs"
@@ -256,32 +258,31 @@ if [ -n "${input_dir}" ]; then
 				continue
 				;;
 			*)
-				fd_exclude_args+=("--exclude" "'${glob}'")
+				fd_exclude_args+=("--exclude" "${glob}")
 				;;
 		esac
 	done
 else
 	for glob in "${excludes[@]}"; do
-		fd_exclude_args+=("--exclude" "'${glob}'")
+		fd_exclude_args+=("--exclude" "${glob}")
 	done
 fi
 
 while true; do
 	root="${root%/}"
 	cd "$root"
-	fdcmd="fd ${fd_options} ${fd_exclude_args[*]}"
 	if [ -z "$target" ]; then
 		item=$(
+		  fd $fd_options "${fd_exclude_args[@]}" | \
 			pickout \
-				$geometry_arg \
 				$accept_input_arg \
+				$geometry_arg \
 				--history-key "file://$PWD" \
 				--home "$home" \
 				--input "$input" \
 				--qwindowtitle "$title" \
 				--word-delimiters '._-' \
 				--big-word-delimiters '/' \
-				--source "$fdcmd" \
 				--prompt "${prompt:-$mode}"
 		) || exit 1
 
