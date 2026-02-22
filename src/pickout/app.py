@@ -115,12 +115,13 @@ class Filter(QObject):
 	_connected = False
 	_connection_retries = 100
 
-	def __init__(self, logger, source, limit, json_input):
+	def __init__(self, logger, source, limit, json_input, input=''):
 		super().__init__()
 		self._logger = logger
 		self._source = source
 		self._limit = limit
 		self._json_input = json_input
+		self._input = input
 		self._requests = []
 		self.refreshed.connect(self._refresh)
 		self.requested.connect(self._request)
@@ -154,7 +155,7 @@ class Filter(QObject):
 	def start(self):
 		self.stop()
 
-		args = [self._path, '--limit', str(self._limit)]
+		args = [self._path, '--limit', str(self._limit), '--initial-query', self._input]
 
 		if self._source is not None:
 			args.extend(['--source', self._source])
@@ -251,6 +252,7 @@ class Picker:
 			json_input=False,
 			json_output=False,
 			source=None,
+			input='',
 			**options
 		):
 		self._json_input = json_input
@@ -266,13 +268,14 @@ class Picker:
 			source,
 			limit or self._default_limit,
 			json_input,
+			input,
 		)
 
 		self._view = view_type(
 			self,
 			self._filter,
 			self._logger,
-			**self._fix_options(**options)
+			**self._fix_options(input=input, **options)
 		)
 
 	def exec(self):

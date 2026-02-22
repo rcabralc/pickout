@@ -60,12 +60,12 @@ module Pickout
 			start(**parse_arguments)
 		end
 
-		def self.start(source, limit, json_input)
+		def self.start(source, limit, input, json_input)
 			factory = json_input ? JSONEntries : LineEntries
-			return new(factory.new(STDIN), limit).start unless source
+			return new(factory.new(STDIN), limit, input).start unless source
 
 			Process.run(source, shell: true) do |process|
-				new(factory.new(process.output), limit).start
+				new(factory.new(process.output), limit, input).start
 			end
 		end
 
@@ -73,6 +73,7 @@ module Pickout
 			json_input = false
 			limit = 50
 			source = nil
+			input = ""
 
 			OptionParser.parse do |parser|
 				parser.banner = "Usage: filter [options]"
@@ -82,6 +83,13 @@ module Pickout
 					"Input is a string containing a JSON array with objects containing a 'value' property."
 				) do |value|
 					json_input = true
+				end
+
+				parser.on(
+					"--initial-query QUERY",
+					"Initial string to filter the results. [Default: \"\"]"
+				) do |value|
+					input = value
 				end
 
 				parser.on(
@@ -116,10 +124,10 @@ module Pickout
 				end
 			end
 
-			{json_input: json_input, limit: limit, source: source}
+			{json_input: json_input, limit: limit, source: source, input: input}
 		end
 
-		def initialize(entries : Iterator(Entry), @limit : Int32)
+		def initialize(entries : Iterator(Entry), @limit : Int32, @input : String)
 			@cache = Cache(CompositePattern, Ranking).new(entries) do |entries, pat|
 				Ranking.new(entries, @limit, pat)
 			end
@@ -139,6 +147,7 @@ module Pickout
 			server = TCPServer.new("127.0.0.1", 0)
 			STDOUT.puts(server.local_address.port)
 			server.accept do |socket|
+				@cache.filter(build_pattern(@input))
 				socket.each_line do |line|
 					result = process(line.chomp)
 					socket.puts(result.to_json) if result
