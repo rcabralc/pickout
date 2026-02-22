@@ -5,12 +5,12 @@ shopt -s globstar
 
 usage () {
 	echo "Usage:"
-	echo "    filepick [--[no-]accept-input]"
+	echo "    filepick [--[no-]accept-query]"
 	echo "             [--exclude=<pattern> ...]"
 	echo "             [--geometry=<geometry>]"
 	echo "             [--[no-]hidden]"
-	echo "             [--home=<home>]"
-	echo "             [--input=<input>]"
+	echo "             [--home-query=<query>]"
+	echo "             [--initial-query=<query>]"
 	echo "             [--loop|--dir-opener=<opener>]"
 	echo "             [--mode=<mode>]"
 	echo "             [--prompt=<prompt>]"
@@ -44,11 +44,11 @@ hidden_arg=--hidden
 geometry=
 while [ "$#" -gt 0 ]; do
 	case $1 in
-		--accept-input)
-			accept_input_arg=--accept-input
+		--accept-query)
+			accept_query_arg=--accept-query
 			;;
-		--no-accept-input)
-			accept_input_arg=
+		--no-accept-query)
+			accept_query_arg=
 			;;
 
 		--dir-opener=*)
@@ -82,8 +82,8 @@ while [ "$#" -gt 0 ]; do
 			usage
 			echo
 			echo "Options:"
-			echo "    --[no-]accept-input"
-			echo "                     sets or resets pickout option --accept-input."
+			echo "    --[no-]accept-query"
+			echo "                     sets or resets pickout option --accept-query."
 			echo "    --dir-opener=<opener>"
 			echo "                     program used to open directories (default: xdg-open)."
 			echo "    --exclude=<pattern>"
@@ -91,8 +91,10 @@ while [ "$#" -gt 0 ]; do
 			echo "    --geometry=<geometry>"
 			echo "                     pickout option --qwindowgeometry."
 			echo "    --[no-]-hidden   sets or resets fd(1) option --hidden. Default is --hidden."
-			echo "    --home=<home>    pickout option --home."
-			echo "    --input=<input>  pickout option --input."
+			echo "    --home-query=<query>"
+			echo "                     pickout option --home-query."
+			echo "    --initial-query=<query>"
+			echo "                     pickout option --initial-query."
 			echo "    --loop           directories start a new session, loop until a non-directory is selected/entered."
 			echo "    --mode=<mode>    \"copy\", \"open\" or \"echo\", see below (defaults to \"open\")."
 			echo "    --prompt=<prompt>"
@@ -134,28 +136,28 @@ while [ "$#" -gt 0 ]; do
 			hidden_arg=
 			;;
 
-		# Contrary to other options, --home and --input accept an empty
-		# argument. They can be set to an empty string and reset to a non-empty
-		# string, but the opposite is not allowed.
-		--home=*)
+		# Contrary to other options, --home-query and --initial-query accept an
+		# empty argument. They can be set to an empty string and reset to a
+		# non-empty string, but the opposite is not allowed.
+		--home-query=*)
 			arg="${1#*=}"
-			[ -n "$home" ] && fail "--home set multiple times: $home, $arg"
-			home="$arg"
+			[ -n "$home_query" ] && fail "--home-query set multiple times: $home_query, $arg"
+			home_query="$arg"
 			;;
-		--home)
+		--home-query)
 			shift
-			[ -n "$home" ] && fail "--home set multiple times: $home, $1"
-			home="$1"
+			[ -n "$home_query" ] && fail "--home-query set multiple times: $home_query, $1"
+			home_query="$1"
 			;;
-		--input=*)
+		--initial-query=*)
 			arg="${1#*=}"
-			[ -n "$input" ] && fail "--input set multiple times: $input, $arg"
-			input="$arg"
+			[ -n "$initial_query" ] && fail "--initial-query set multiple times: $initial_query, $arg"
+			initial_query="$arg"
 			;;
-		--input)
+		--initial-query)
 			shift
-			[ -n "$input" ] && fail "--input set multiple times: $input, $1"
-			input="$1"
+			[ -n "$initial_query" ] && fail "--initial-query set multiple times: $initial_query, $1"
+			initial_query="$1"
 			;;
 
 		--loop)
@@ -247,13 +249,13 @@ geometry_arg=
 
 fd_options=". --type file --follow $hidden_arg --no-ignore-vcs"
 
-# $input is taken as a filesystem path. Make sure its directory is not excluded.
-[ -f "${input}" ] && input_dir=$(dirname "${input}")
-[ -d "${input}" ] && input_dir="${input}"
+# $initial_query is taken as a filesystem path. Make sure its directory is not excluded.
+[ -f "${initial_query}" ] && initial_query_dir=$(dirname "${initial_query}")
+[ -d "${initial_query}" ] && initial_query_dir="${initial_query}"
 fd_exclude_args=()
-if [ -n "${input_dir}" ]; then
+if [ -n "${initial_query_dir}" ]; then
 	for glob in "${excludes[@]}"; do
-		case "${input_dir}" in
+		case "${initial_query_dir}" in
 			${glob})
 				continue
 				;;
@@ -275,11 +277,11 @@ while true; do
 		item=$(
 		  fd $fd_options "${fd_exclude_args[@]}" | \
 			pickout \
-				$accept_input_arg \
+				$accept_query_arg \
 				$geometry_arg \
 				--history-key "file://$PWD" \
-				--home "$home" \
-				--input "$input" \
+				--home-query "$home_query" \
+				--initial-query "$initial_query" \
 				--qwindowtitle "$title" \
 				--word-delimiters '._-' \
 				--big-word-delimiters '/' \
@@ -296,8 +298,8 @@ while true; do
 		# In loop mode, always deliver a file, never a directory. Change root
 		# and restart.
 		root="$item"
-		# Also, the initial input likely makes no sense anymore. Unset it.
-		input=""
+		# Also, the initial query likely makes no sense anymore. Unset it.
+		initial_query=""
 		continue
 	fi
 

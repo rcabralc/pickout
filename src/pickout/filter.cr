@@ -60,12 +60,12 @@ module Pickout
 			start(**parse_arguments)
 		end
 
-		def self.start(source, limit, input, json_input)
+		def self.start(source, limit, query, json_input)
 			factory = json_input ? JSONEntries : LineEntries
-			return new(factory.new(STDIN), limit, input).start unless source
+			return new(factory.new(STDIN), limit, query).start unless source
 
 			Process.run(source, shell: true) do |process|
-				new(factory.new(process.output), limit, input).start
+				new(factory.new(process.output), limit, query).start
 			end
 		end
 
@@ -73,7 +73,7 @@ module Pickout
 			json_input = false
 			limit = 50
 			source = nil
-			input = ""
+			query = ""
 
 			OptionParser.parse do |parser|
 				parser.banner = "Usage: filter [options]"
@@ -89,7 +89,7 @@ module Pickout
 					"--initial-query QUERY",
 					"Initial string to filter the results. [Default: \"\"]"
 				) do |value|
-					input = value
+					query = value
 				end
 
 				parser.on(
@@ -124,17 +124,17 @@ module Pickout
 				end
 			end
 
-			{json_input: json_input, limit: limit, source: source, input: input}
+			{json_input: json_input, limit: limit, source: source, query: query}
 		end
 
-		def initialize(entries : Iterator(Entry), @limit : Int32, @input : String)
+		def initialize(entries : Iterator(Entry), @limit : Int32, @query : String)
 			@cache = Cache(CompositePattern, Ranking).new(entries) do |entries, pat|
 				Ranking.new(entries, @limit, pat)
 			end
 		end
 
-		def process(input : String | Nil)
-			body = parse_request(input)
+		def process(query : String | Nil)
+			body = parse_request(query)
 			return unless body
 
 			case body["command"]
@@ -147,7 +147,7 @@ module Pickout
 			server = TCPServer.new("127.0.0.1", 0)
 			STDOUT.puts(server.local_address.port)
 			server.accept do |socket|
-				@cache.filter(build_pattern(@input))
+				@cache.filter(build_pattern(@query))
 				socket.each_line do |line|
 					result = process(line.chomp)
 					socket.puts(result.to_json) if result
@@ -157,9 +157,9 @@ module Pickout
 		end
 
 		def filter(body)
-			input = body["input"].as(String)
+			query = body["query"].as(String)
 			seq = body["seq"].as(Int32)
-			ranking = @cache.filter(build_pattern(input))
+			ranking = @cache.filter(build_pattern(query))
 			filtered = ranking.entries.size
 			total = @cache.size
 			items = ranking.map do |match|
@@ -183,19 +183,19 @@ module Pickout
 		end
 
 		def complete(body)
-			input = body["input"].as(String)
+			query = body["query"].as(String)
 			seq = body["seq"].as(Int32)
 			sep = body["sep"]?.as(String | Nil)
-			result = @cache.filter(build_pattern(input))
+			result = @cache.filter(build_pattern(query))
 			entries = result.entries
-			size = input.size
-			candidates = entries.compact_map { |e| e.value if e.value.starts_with?(input) }
+			size = query.size
+			candidates = entries.compact_map { |e| e.value if e.value.starts_with?(query) }
 			candidate = common_prefix(candidates)
 			if sep && !candidate.empty?
 				cut_size = size + (candidate[size..].rindex(sep).try { |i| i + 1 } || 0)
 				candidate = candidate[..cut_size - 1]
 			end
-			candidate = input if candidate.empty?
+			candidate = query if candidate.empty?
 			{
 				command: "complete",
 				request: body,
@@ -225,17 +225,17 @@ module Pickout
 			body unless body.empty?
 		end
 
-		private def build_pattern(input)
-			CompositePattern.from(parse_tokens(input))
+		private def build_pattern(query)
+			CompositePattern.from(parse_tokens(query))
 		end
 
-		private def parse_tokens(input)
-			if !input.includes?(' ') && !input.includes?('\\')
+		private def parse_tokens(query)
+			if !query.includes?(' ') && !query.includes?('\\')
 				# Optimization for the common case of a single pattern: don't parse it, since it doesn't contain any special character.
-				return [input]
+				return [query]
 			end
 
-			it = input.lstrip.each_char
+			it = query.lstrip.each_char
 			token = [] of Char
 			tokens = [token]
 

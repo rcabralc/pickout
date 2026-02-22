@@ -29,29 +29,29 @@ class Menu(QObject):
 	__index = 0
 
 	def __init__(
-			self,
-			view,
-			filter,
-			logger,
-			history,
-			sep=None,
-			accept_input=False,
-			big_delimiters=[],
-			delimiters=[],
-			home_input='',
-			input='',
-			prompt='',
-			**kw
-		):
+		self,
+		view,
+		filter,
+		logger,
+		history,
+		sep=None,
+		accept_query=False,
+		big_delimiters=[],
+		delimiters=[],
+		home_query='',
+		initial_query='',
+		prompt='',
+		**kw,
+	):
 		super().__init__(view)
 		self._logger = logger
 		self._history = history
 		self._completion_sep = sep
-		self._accept_input = accept_input
+		self._accept_query = accept_query
 		self._big_delimiters = big_delimiters
 		self._delimiters = delimiters
-		self._home_input = home_input
-		self._input = input
+		self._home_query = home_query
+		self._initial_query = initial_query
 		self._filter = filter
 		self._filter.response.connect(self._update_list)
 		self.prompt = prompt
@@ -61,8 +61,8 @@ class Menu(QObject):
 		return json.dumps(dict(
 			big_delimiters=self._big_delimiters,
 			delimiters=self._delimiters,
-			home_input=self._home_input,
-			input=self._input,
+			home_query=self._home_query,
+			initial_query=self._initial_query,
 			pattern_types=PATTERN_TYPES,
 		))
 
@@ -90,27 +90,27 @@ class Menu(QObject):
 			self.completed.emit(response['candidate'])
 
 	@Slot(int, str)
-	def filter(self, seq, input):
+	def filter(self, seq, query):
 		self._filter.requested.emit(dict(
 			command='filter',
 			seq=seq,
-			input=input,
+			query=query,
 		))
 
 	@Slot(int, str)
-	def complete(self, seq, input):
+	def complete(self, seq, query):
 		self._filter.requested.emit(dict(
 			command='complete',
 			seq=seq,
-			input=input,
+			query=query,
 		))
 
 	@Slot(int, str)
-	def refresh(self, seq, input):
+	def refresh(self, seq, query):
 		self._filter.refreshed.emit(dict(
 			command='filter',
 			seq=seq,
-			input=input,
+			query=query,
 		))
 
 	@Slot()
@@ -121,20 +121,20 @@ class Menu(QObject):
 			self.picked.emit([selected])
 
 	@Slot(str)
-	def accept_input(self, input):
-		if self._accept_input:
-			self._history.add(input)
-			self.picked.emit([dict(index=-1, value=input + '\n')])
+	def accept_query(self, query):
+		if self._accept_query:
+			self._history.add(query)
+			self.picked.emit([dict(index=-1, value=query + '\n')])
 
 	@Slot(int, str)
-	def request_next_from_history(self, index, input):
-		entry = self._history.next(index, input)
+	def request_next_from_history(self, index, query):
+		entry = self._history.next(index, query)
 		if entry is not None:
 			self.history.emit(entry.index, entry.value)
 
 	@Slot(int, str)
-	def request_prev_from_history(self, index, input):
-		entry = self._history.prev(index, input)
+	def request_prev_from_history(self, index, query):
+		entry = self._history.prev(index, query)
 		if entry is not None:
 			self.history.emit(entry.index, entry.value)
 
@@ -196,11 +196,11 @@ class Theme:
 
 	def _default_colors(self):
 		return {
-			"--background-color": self._rgb(self.background_color),
-			"--color": self._color('WindowText'),
-			"--entries-selected-background-color": self._color('Highlight'),
-			"--entries-selected-color": self._color('HighlightedText'),
-			"--input-background-color": self._color('AlternateBase'),
+			'--background-color': self._rgb(self.background_color),
+			'--color': self._color('WindowText'),
+			'--entries-selected-background-color': self._color('Highlight'),
+			'--entries-selected-color': self._color('HighlightedText'),
+			'--input-background-color': self._color('AlternateBase'),
 		}
 
 	def _color(self, role_name, disabled=False, inactive=False):
@@ -208,7 +208,7 @@ class Theme:
 		return self._rgb(self._palette.color(QPalette.Active, role))
 
 	def _rgb(self, color):
-		return "%d %d %d" % (color.red(), color.green(), color.blue())
+		return '%d %d %d' % (color.red(), color.green(), color.blue())
 
 
 class View(QWebEngineView):

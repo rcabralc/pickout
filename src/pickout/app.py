@@ -39,19 +39,19 @@ class History:
 		self._key = key
 		self._entries, _, _ = self._load()
 
-	def next(self, index, input):
+	def next(self, index, query):
 		if index < 0:
 			return
 		entries = self._entries[:index]
 		for index, value in reversed(list(enumerate(entries))):
-			if value.startswith(input):
+			if value.startswith(query):
 				return HistoryEntry(index, value)
-		return HistoryEntry(-1, input)
+		return HistoryEntry(-1, query)
 
-	def prev(self, index, input):
+	def prev(self, index, query):
 		entries = self._entries[index + 1:]
 		for i, value in enumerate(entries):
-			if value.startswith(input):
+			if value.startswith(query):
 				return HistoryEntry(i + index + 1, value)
 
 	def add(self, value):
@@ -93,8 +93,8 @@ class History:
 
 
 class NullHistory:
-	def prev(self, index, input): return
-	def next(self, index, input): return
+	def prev(self, index, query): return
+	def next(self, index, query): return
 	def add(self, _): return
 
 
@@ -115,13 +115,13 @@ class Filter(QObject):
 	_connected = False
 	_connection_retries = 100
 
-	def __init__(self, logger, source, limit, json_input, input=''):
+	def __init__(self, logger, source, limit, json_input, initial_query=''):
 		super().__init__()
 		self._logger = logger
 		self._source = source
 		self._limit = limit
 		self._json_input = json_input
-		self._input = input
+		self._initial_query = initial_query
 		self._requests = []
 		self.refreshed.connect(self._refresh)
 		self.requested.connect(self._request)
@@ -155,7 +155,13 @@ class Filter(QObject):
 	def start(self):
 		self.stop()
 
-		args = [self._path, '--limit', str(self._limit), '--initial-query', self._input]
+		args = [
+			self._path,
+			'--limit',
+			str(self._limit),
+			'--initial-query',
+			self._initial_query,
+		]
 
 		if self._source is not None:
 			args.extend(['--source', self._source])
@@ -171,9 +177,7 @@ class Filter(QObject):
 		self._process.finished.connect(self._handle_process_finished)
 
 		if self._source is None:
-			self._process.setInputChannelMode(
-				QProcess.ForwardedInputChannel
-			)
+			self._process.setInputChannelMode(QProcess.ForwardedInputChannel)
 
 		self._process.start(args[0], args[1:])
 
@@ -245,16 +249,16 @@ class Picker:
 	_filter = None
 
 	def __init__(
-			self,
-			view_type,
-			logger,
-			limit=None,
-			json_input=False,
-			json_output=False,
-			source=None,
-			input='',
-			**options
-		):
+		self,
+		view_type,
+		logger,
+		limit=None,
+		json_input=False,
+		json_output=False,
+		source=None,
+		initial_query='',
+		**options,
+	):
 		self._json_input = json_input
 		self._json_output = json_output
 		self._logger = logger
@@ -268,14 +272,14 @@ class Picker:
 			source,
 			limit or self._default_limit,
 			json_input,
-			input,
+			initial_query,
 		)
 
 		self._view = view_type(
 			self,
 			self._filter,
 			self._logger,
-			**self._fix_options(input=input, **options)
+			**self._fix_options(initial_query=initial_query, **options),
 		)
 
 	def exec(self):
@@ -304,22 +308,20 @@ class Picker:
 		self.exit(0)
 
 	def _fix_options(
-			self,
-			completion_sep='',
-			home=None,
-			big_word_delimiters=None,
-			history_key=None,
-			word_delimiters=None,
-			**kw
-		):
+		self,
+		completion_sep='',
+		big_word_delimiters=None,
+		history_key=None,
+		word_delimiters=None,
+		**kw,
+	):
 		history = History.build(history_key)
 		return dict(
 			delimiters=list(set((word_delimiters or '') + (big_word_delimiters or ''))),
 			big_delimiters=list(big_word_delimiters or ''),
 			history=history,
-			home_input=home,
 			sep=completion_sep,
-			**kw
+			**kw,
 		)
 
 

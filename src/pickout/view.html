@@ -10,11 +10,11 @@
 				const bridge = global.bridge = (function (console) {
 					// Stub bridge implementation. The real one is injected by Qt.
 					return {
-						accept_input (input) { console.log('tell menu to accept input', input) },
+						accept_query (query) { console.log('tell menu to accept query', query) },
 						accept_selected () { console.log('tell menu to accept selected item') },
-						complete (seq, text) { console.log('send input to menu for completion', text) },
+						complete (seq, text) { console.log('send query to menu for completion', text) },
 						dismiss () { console.log('tell menu to quit') },
-						filter (seq, text) { console.log('send input to menu for filtering', seq, text) },
+						filter (seq, text) { console.log('send query to menu for filtering', seq, text) },
 						log (message) { console.log('send messsage to logger', message) },
 						refresh () { console.log('tell menu to refresh entries') },
 						request_next_from_history () { console.log('get next entry from history') },
@@ -183,19 +183,19 @@
 					window.addEventListener('click', focus)
 					el.focus()
 
-					const inputStack = (function () {
+					const queryStack = (function () {
 						let pos = 0
-						let inputs = []
+						let queries = []
 
 						return { push, redo, undo }
 
 						function push (oldValue, newValue) {
-							inputs.splice(pos++, inputs.length, oldValue, newValue)
+							queries.splice(pos++, queries.length, oldValue, newValue)
 							return newValue
 						}
 
-						function redo () { return pos < inputs.length - 1 ? inputs[++pos] : null }
-						function undo () { return pos ? inputs[--pos] : null }
+						function redo () { return pos < queries.length - 1 ? queries[++pos] : null }
+						function undo () { return pos ? queries[--pos] : null }
 					})()
 
 					return {
@@ -216,7 +216,7 @@
 							if (!bigDelimiters.includes(' ')) bigDelimiters.push(' ')
 							if (!delimiters.includes(' ')) delimiters.push(' ')
 							patternTypes = params.pattern_types || []
-							el.value = (params.input || '') + el.value
+							el.value = (params.initial_query || '') + el.value
 							isReady = true
 							el.dispatchEvent(new Event('input', { bubbles: true }))
 						},
@@ -304,7 +304,7 @@
 
 					function getHistoryState () { return historyState }
 
-					function redo () { return write(inputStack.redo()) }
+					function redo () { return write(queryStack.redo()) }
 
 					function replace (str, start, end) {
 						const value = get()
@@ -320,7 +320,7 @@
 
 					function set (value) {
 						if (value == null) return
-						return inputStack.push(get(), write(value))
+						return queryStack.push(get(), write(value))
 					}
 
 					function setHistoryState ({ index, value }) {
@@ -328,7 +328,7 @@
 						return write(value)
 					}
 
-					function undo () { return write(inputStack.undo()) }
+					function undo () { return write(queryStack.undo()) }
 
 					function wordUnderCursor (delimiters) {
 						const value = get()
@@ -434,7 +434,7 @@
 					function setup (json) {
 						progress.start()
 						const params = JSON.parse(json)
-						home = params.home_input
+						home = params.home_query
 						input.setup(params)
 					}
 
@@ -445,7 +445,7 @@
 						keyHandlers.Escape = swallow(menu.dismiss)
 						keyHandlers.Tab = swallow(() => filter(input.get(), { complete: true }))
 						keyHandlers.F5 = swallow(() => filter(input.get(), { refresh: true }))
-						keyHandlers['Control-Enter'] = swallow(() => menu.accept_input(input.get()))
+						keyHandlers['Control-Enter'] = swallow(() => menu.accept_query(input.get()))
 						keyHandlers['Control- '] = keyHandlers.Escape
 						keyHandlers['Control-d'] = keyHandlers.Escape
 						keyHandlers['Control-h'] = swallow(() => filter(input.set(home)))
