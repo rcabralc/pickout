@@ -29,9 +29,15 @@ module Pickout
 		end
 
 		private def find(key)
-			@cache
-				.compact_map { |k, hit| hit if k.includes?(key) }
-				.min_by?(&.weight)
+			best = nil
+			best_weight = Int32::MAX
+			@cache.each do |k, hit|
+				if k.includes?(key) && hit.weight < best_weight
+					best = hit
+					best_weight = hit.weight
+				end
+			end
+			best
 		end
 
 		private def update(key, thing)

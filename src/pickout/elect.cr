@@ -96,16 +96,15 @@ module Pickout
 				chunks
 			end
 
-			partitions = [] of Partition
-			next_start = chunks.reduce(0) do |next_start, chunk|
-				matched = value[chunk[0]..chunk[1]]
-				unmatched = value[next_start, chunk[0] - next_start]
-				partitions << {unmatched: unmatched, matched: matched}
-				chunk[1] + 1
+			partitions = Array(Partition).new(chunks.size + 1)
+			chunk_start = 0
+			chunks.each do |chunk|
+				partitions << {unmatched: value[chunk_start...chunk[0]], matched: value[chunk[0]..chunk[1]]}
+				chunk_start = chunk[1] + 1
 			end
 
-			if next_start < value.size
-				partitions << {unmatched: value[next_start..], matched: ""}
+			if chunk_start < value.size
+				partitions << {unmatched: value[chunk_start..], matched: ""}
 			end
 
 			partitions
