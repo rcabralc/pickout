@@ -15,7 +15,7 @@ module Pickout
 	alias FuzzyScore = Int32
 
 	class Entry
-		getter index, value
+		getter index
 
 		@value : String?
 		@value_downcased : String?
@@ -54,7 +54,7 @@ module Pickout
 		end
 	end
 
-	class Match
+	struct Match
 		include Comparable(Match)
 
 		getter entry, score
@@ -631,12 +631,11 @@ module Pickout
 	end
 
 	class Ranking
-		getter entries, original_entries
+		getter entries : Slice(Entry)
 
 		include Enumerable(Match)
 
 		@entries = Slice(Entry).empty
-		@original_entries = Slice(Entry).empty
 		@matches = [] of Match
 
 		def initialize(strings : Array(String), limit : Int32?, pattern)
@@ -644,122 +643,118 @@ module Pickout
 			initialize(entries, limit, pattern)
 		end
 
-		def initialize(entries_ary : Array(Entry), limit : Int32?, pattern)
-			entries = Slice(Entry).new(entries_ary.size) { |i| entries_ary[i] }
-			initialize(entries, limit, pattern)
-		end
-
-		def initialize(entries : Slice(Entry), limit : Int32?, pattern)
-			@original_entries = entries
+		def initialize(original_entries : Indexable(Entry), limit : Int32?, pattern)
 			pattern = CompositePattern.from(pattern)
-			if pattern.empty?
-				@entries = entries
-				size = Math.min(limit || entries.size, entries.size)
-				@matches = Array(Match).new(size) { |i| entries[i].to_empty_match }
-			else
-				matches_channel = Channel(Match).new(500_000)
-				match_from_slice(entries, pattern, matches_channel, concurrency - 1)
-				build_results(limit, matches_channel)
-			end
-		end
+			return sort(limit, original_entries, pattern) unless pattern.empty?
 
-		def initialize(entries : Iterator(Entry), limit : Int32?, pattern)
-			pattern = CompositePattern.from(pattern)
-			if pattern.empty?
-				entries_ary = Array(Entry).new
-				@matches = [] of Match
-				entries.each do |entry|
-					entries_ary.push(entry)
-					@matches.push(entry.to_empty_match) if !limit || limit > @matches.size
+			@entries =
+				if original_entries.is_a?(Slice(Entry))
+					original_entries
+				else
+					Slice(Entry).new(original_entries.size) { |i| original_entries[i] }
 				end
-				@entries = @original_entries = Slice
-					.new(entries_ary.to_unsafe, entries_ary.size, read_only: true)
+
+			size = Math.min(limit || @entries.size, @entries.size)
+			@matches = Array(Match).new(size) { |i| @entries[i].to_empty_match }
+		end
+
+		def initialize(original_entries : Channel(Entry), limit : Int32?, pattern)
+			pattern = CompositePattern.from(pattern)
+			return sort(limit, original_entries, pattern) unless pattern.empty?
+
+			entries_ary = Array(Entry).new
+			if limit
+				@matches = Array(Match).new(limit)
+
+				limit.times do
+					break unless (entry = original_entries.receive?)
+
+					entries_ary.push(entry)
+					@matches.push(entry.to_empty_match)
+				end
+
+				while (entry = original_entries.receive?)
+					entries_ary.push(entry)
+				end
 			else
-				matches_channel = Channel(Match).new(500_000)
-				match_from_iterator(entries, pattern, matches_channel, concurrency - 1)
-				build_results(limit, matches_channel)
+				@matches = [] of Match
+				while (entry = original_entries.receive?)
+					entries_ary.push(entry)
+					@matches.push(entry.to_empty_match)
+				end
 			end
+
+			@entries = Slice.new(entries_ary.to_unsafe, entries_ary.size, read_only: true)
 		end
 
 		def each
 			@matches.each { |match| yield match }
 		end
 
-		def total_size
-			original_entries.size || 0
-		end
-
-		private def match_from_slice(entries, pattern, channel, concurrency)
-			active_workers = Atomic.new(concurrency.clamp(1..))
-			entries_index = Atomic.new(0)
-			entries_size = entries.size
-
-			active_workers.get.times do
-				spawn do
-					pat = pattern.to_matchable
-					while (index = entries_index.add(1)) < entries_size
-						match = pat.matches?(entries[index])
-						channel.send(match) if match
-					end
-				ensure
-					channel.close if active_workers.sub(1) == 1
-				end
-			end
-		end
-
-		private def match_from_iterator(entries, pattern, channel, concurrency)
-			original_entries = Array(Entry).new
-			entries_channel = Channel(Entry).new(500_000)
-			active_workers = Atomic.new((concurrency - 1).clamp(1..))
-
-			spawn do
-				entries.each do |entry|
-					original_entries.push(entry)
-					entries_channel.send(entry)
-				end
-				@original_entries = Slice.new(
-					original_entries.to_unsafe,
-					original_entries.size,
-					read_only: true
-				)
-				entries_channel.close
-			end
-
-			active_workers.get.times do
-				spawn do
-					pat = pattern.to_matchable
-					while (entry = entries_channel.receive?)
-						match = pat.matches?(entry)
-						channel.send(match) if match
-					end
-				ensure
-					channel.close if active_workers.sub(1) == 1
-				end
-			end
-		end
-
-		private def build_results(limit, matches_channel)
+		private def sort(limit, original_entries, pattern)
+			matches_channel = filter(original_entries, pattern)
 			entries = Array(Entry).new
-			if limit
-				heap = MinHeap(Match).new(limit)
-				while (match = matches_channel.receive?)
-					heap.push(match)
-					entries.push(match.entry)
-				end
-				@matches = heap.to_a!
+			matches = limit ? MinHeap(Match).new(limit) : [] of Match
+
+			while (match = matches_channel.receive?)
+				matches.push(match)
+				entries.push(match.entry)
+			end
+
+			if matches.is_a?(MinHeap)
+				@matches = matches.to_a!
 			else
-				@matches = [] of Match
-				while (match = matches_channel.receive?)
-					@matches.push(match)
-					entries.push(match.entry)
+				matches.sort_by! { |m| -m.score }
+				@matches = matches
+			end
+
+			@entries = Slice.new(entries.to_unsafe, entries.size, read_only: true)
+		end
+
+		private def filter(original_entries : Indexable(Entry), pattern)
+			Channel(Match).new(500_000).tap do |channel|
+				active_workers = Atomic.new(concurrency.clamp(1..))
+				entries_index = Atomic.new(0)
+				entries_size = original_entries.size
+
+				active_workers.get.times do
+					spawn do
+						pat = pattern.to_matchable
+						while (index = entries_index.add(1)) < entries_size
+							match = pat.matches?(original_entries[index])
+							channel.send(match) if match
+						end
+					ensure
+						channel.close if active_workers.sub(1) == 1
+					end
 				end
 			end
-			@entries = Slice.new(entries.to_unsafe, entries.size, read_only: true)
+		end
+
+		private def filter(original_entries : Channel(Entry), pattern)
+			Channel(Match).new(500_000).tap do |channel|
+				# Subtract one from concurrency because if we're getting a channel for
+				# entries, there's at least one worker feeding it in the other end
+				# (supposedly).
+				active_workers = Atomic.new((concurrency - 1).clamp(1..))
+				active_workers.get.times do
+					spawn do
+						pat = pattern.to_matchable
+						while (entry = original_entries.receive?)
+							match = pat.matches?(entry)
+							channel.send(match) if match
+						end
+					ensure
+						channel.close if active_workers.sub(1) == 1
+					end
+				end
+			end
 		end
 
 		{% if flag?(:preview_mt) %}
 			private def concurrency
-				(ENV.fetch("CRYSTAL_WORKERS", System.cpu_count.to_i32).to_i).clamp(1, 64)
+				# Subtract one worker for the main fiber.
+				(ENV.fetch("CRYSTAL_WORKERS", System.cpu_count).to_i - 1).clamp(1..)
 			end
 		{% else %}
 			private def concurrency

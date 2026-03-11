@@ -1,15 +1,31 @@
-require "./elect"
+require "./ranking"
 require "json"
 
 module Pickout
 	class Cache(K, T)
-		@entries : Slice(Entry)?
+		@entries = Slice(Entry).empty
+		@size : Int32?
 
 		def initialize(
-			@entries_it : Iterator(Entry),
-			&@refilter : Slice(Entry) | Iterator(Entry), K? -> T
+			entries_it : Iterator(Entry),
+			&@refilter : Slice(Entry) | Channel(Entry), K -> T
 		)
 			@cache = {} of K => Hit(K, T)
+			@entries_channel = Channel(Entry).new(500_000)
+			@consumed_channel = false
+			@size_channel = Channel(Int32).new(1)
+			entries = [] of Entry
+
+			spawn do
+				entries_it.each do |entry|
+					entries.push(entry)
+					@entries_channel.send(entry)
+				end
+				@entries = Slice.new(entries.to_unsafe, entries.size, read_only: true)
+				@size_channel.send(entries.size)
+			ensure
+				@entries_channel.close
+			end
 		end
 
 		def filter(key : K)
@@ -21,11 +37,14 @@ module Pickout
 		end
 
 		def size
-			entries.size if (entries = @entries)
+			@size ||= @size_channel.receive.tap { @size_channel.close }
 		end
 
 		private def entries
-			@entries || @entries_it
+			return @entries if @consumed_channel
+
+			@consumed_channel = true
+			@entries_channel
 		end
 
 		private def find(key)
@@ -41,7 +60,6 @@ module Pickout
 		end
 
 		private def update(key, thing)
-			@entries = thing.original_entries if @cache.empty?
 			@cache[key] = Hit(K, T).new(key, thing)
 			thing
 		end

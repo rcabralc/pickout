@@ -1,5 +1,6 @@
 from PySide6.QtCore import QObject
 from PySide6.QtCore import QProcess
+from PySide6.QtCore import QProcessEnvironment
 from PySide6.QtCore import Signal
 from PySide6.QtCore import Slot
 from PySide6.QtNetwork import QAbstractSocket
@@ -115,16 +116,16 @@ class Filter(QObject):
 	_connected = False
 	_connection_retries = 100
 
-	def __init__(self, logger, source, limit, json_input, initial_query=''):
+	def __init__(self, logger, source, limit, json_input):
 		super().__init__()
 		self._logger = logger
 		self._source = source
 		self._limit = limit
 		self._json_input = json_input
-		self._initial_query = initial_query
 		self._requests = []
 		self.refreshed.connect(self._refresh)
 		self.requested.connect(self._request)
+		self._start()
 
 	@Slot(dict)
 	def _refresh(self, payload):
@@ -132,7 +133,7 @@ class Filter(QObject):
 			return
 
 		if self._source is not None:
-			self.start()
+			self._start()
 
 		self._request(payload)
 
@@ -152,16 +153,10 @@ class Filter(QObject):
 			self._socket.write(data + b'\n')
 
 	@Slot()
-	def start(self):
+	def _start(self):
 		self.stop()
 
-		args = [
-			self._path,
-			'--limit',
-			str(self._limit),
-			'--initial-query',
-			self._initial_query,
-		]
+		args = [self._path, '--limit', str(self._limit)]
 
 		if self._source is not None:
 			args.extend(['--source', self._source])
@@ -169,10 +164,16 @@ class Filter(QObject):
 		if self._json_input:
 			args.append('--json-input')
 
+		env = QProcessEnvironment.systemEnvironment()
+		env.insert('CRYSTAL_WORKERS', str(max(os.cpu_count(), 1)))
 		self._process = QProcess()
+		self._process.setProcessEnvironment(env)
 		self._process.setReadChannel(QProcess.StandardOutput)
 		self._process.readyReadStandardOutput.connect(
 			self._handle_process_output
+		)
+		self._process.started.connect(
+			lambda: self._logger.print('filter: started')
 		)
 		self._process.finished.connect(self._handle_process_finished)
 
@@ -185,8 +186,8 @@ class Filter(QObject):
 		self._logger.print(f'filter: connecting to port {self._port}')
 		self._socket.connectToHost('127.0.0.1', self._port)
 		self._connected = True
-		self._flush_requests()
 		self._logger.print(f'filter: connected to port {self._port}')
+		self._flush_requests()
 
 	@Slot()
 	def _handle_process_output(self):
@@ -225,7 +226,6 @@ class Filter(QObject):
 	@Slot()
 	def _handle_response(self):
 		while line := bytes(self._socket.readLine()).strip():
-			self._logger.print(f'filter: handling response line {line!r}')
 			res = json.loads(line.decode(self._enc))
 			req = res['request']
 			self._logger.print(f'filter: handling response to command {req!r}')
@@ -246,7 +246,6 @@ class Filter(QObject):
 class Picker:
 	_default_limit = 50
 	_app_name = 'pickout'
-	_filter = None
 
 	def __init__(
 		self,
@@ -256,12 +255,12 @@ class Picker:
 		json_input=False,
 		json_output=False,
 		source=None,
-		initial_query='',
 		**options,
 	):
 		self._json_input = json_input
 		self._json_output = json_output
 		self._logger = logger
+		self._logger.print('picker started')
 
 		self._app = QApplication(sys.argv)
 		self._app.setApplicationName(self._app_name)
@@ -272,20 +271,17 @@ class Picker:
 			source,
 			limit or self._default_limit,
 			json_input,
-			initial_query,
 		)
 
 		self._view = view_type(
 			self,
 			self._filter,
 			self._logger,
-			**self._fix_options(initial_query=initial_query, **options),
+			**self._fix_options(**options),
 		)
 
 	def exec(self):
 		signal.signal(signal.SIGINT, lambda s, f: self.exit(1))
-		self._filter.start()
-
 		self._view.show()
 		return self._app.exec()
 

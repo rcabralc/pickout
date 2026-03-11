@@ -144,6 +144,7 @@ from pickout.app import run
 from pickout.webenginegui import View
 
 import sys
+import time
 
 
 def main():
@@ -170,13 +171,18 @@ def main():
 
 class streamlogger:
 	def __init__(self, stream):
+		if stream is None:
+			self.print = lambda _: None
+			return
 		self._stream = stream
+		self._time = time.time()
 
 	def print(self, message):
-		if self._stream is not None:
-			self._stream.write(message + "\n")
-			self._stream.flush()
+		self._print(f'[{(time.time() - self._time) * 1000}ms] {message}')
 
+	def _print(self, message):
+		self._stream.write(message + '\n')
+		self._stream.flush()
 
 if __name__ == "__main__":
 	main()

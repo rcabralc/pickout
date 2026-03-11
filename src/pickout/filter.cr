@@ -5,19 +5,25 @@ require "socket"
 
 module Pickout
 	alias EntryData = Hash(String, JSON::Any)
+	alias RawEntry = NamedTuple(index: Int32, raw_value: String)
+	alias RawEntryWithData = NamedTuple(
+		index: Int32,
+		raw_value: String,
+		data: EntryData
+	)
 
 	class Entry
 		getter data
 
 		@data = EntryData.new
 
-		def initialize(index : Int32, value : String, @data : EntryData)
-			initialize(index, value)
+		def initialize(index : Int32, raw_value : String, @data : EntryData)
+			initialize(index, raw_value)
 		end
 	end
 
 	class LineEntries
-		include Iterator(Entry)
+		include Iterator(RawEntry)
 
 		@stream : IO::FileDescriptor
 
@@ -27,7 +33,7 @@ module Pickout
 
 		def next
 			while (line = @stream.gets(chomp: true))
-				return Entry.new(@index &+= 1, line) unless line.empty?
+				return {index: @index &+= 1, raw_value: line} unless line.empty?
 			end
 
 			stop
@@ -35,7 +41,7 @@ module Pickout
 	end
 
 	class JSONEntries
-		include Iterator(Entry)
+		include Iterator(RawEntryWithData)
 
 		@stream : IO::FileDescriptor
 
@@ -47,8 +53,8 @@ module Pickout
 		def next
 			while (@index &+= 1) < @raw_entries.size
 				data = @raw_entries[@index]
-				value = data["value"].as_s
-				return Entry.new(@index, value, data: data) unless value.empty?
+				line = data["value"].as_s
+				return {index: @index, raw_value: line, data: data} unless line.empty?
 			end
 
 			stop
@@ -60,12 +66,12 @@ module Pickout
 			start(**parse_arguments)
 		end
 
-		def self.start(source, limit, query, json_input)
+		def self.start(source, limit, json_input)
 			factory = json_input ? JSONEntries : LineEntries
-			return new(factory.new(STDIN), limit, query).start unless source
+			return new(factory.new(STDIN), limit).start unless source
 
 			Process.run(source, shell: true) do |process|
-				new(factory.new(process.output), limit, query).start
+				new(factory.new(process.output), limit).start
 			end
 		end
 
@@ -73,7 +79,6 @@ module Pickout
 			json_input = false
 			limit = 50
 			source = nil
-			query = ""
 
 			OptionParser.parse do |parser|
 				parser.banner = "Usage: filter [options]"
@@ -83,13 +88,6 @@ module Pickout
 					"Input is a string containing a JSON array with objects containing a 'value' property."
 				) do |value|
 					json_input = true
-				end
-
-				parser.on(
-					"--initial-query QUERY",
-					"Initial string to filter the results. [Default: \"\"]"
-				) do |value|
-					query = value
 				end
 
 				parser.on(
@@ -124,17 +122,27 @@ module Pickout
 				end
 			end
 
-			{json_input: json_input, limit: limit, source: source, query: query}
+			{json_input: json_input, limit: limit, source: source}
 		end
 
-		def initialize(entries : Iterator(Entry), @limit : Int32, @query : String)
+		def initialize(raw_entries : Iterator(RawEntry), limit : Int32)
+			entries = raw_entries.map { |r| Entry.new(**r) }
+			initialize(entries, limit)
+		end
+
+		def initialize(raw_entries : Iterator(RawEntryWithData), limit : Int32)
+			entries = raw_entries.map { |r| Entry.new(**r) }
+			initialize(entries, limit)
+		end
+
+		def initialize(entries : Iterator(Entry), @limit : Int32)
 			@cache = Cache(CompositePattern, Ranking).new(entries) do |entries, pat|
 				Ranking.new(entries, @limit, pat)
 			end
 		end
 
-		def process(query : String | Nil)
-			body = parse_request(query)
+		def process(request : String | Nil)
+			body = parse_request(request)
 			return unless body
 
 			case body["command"]
@@ -147,7 +155,6 @@ module Pickout
 			server = TCPServer.new("127.0.0.1", 0)
 			STDOUT.puts(server.local_address.port)
 			server.accept do |socket|
-				@cache.filter(build_pattern(@query))
 				socket.each_line do |line|
 					result = process(line.chomp)
 					socket.puts(result.to_json) if result
@@ -217,11 +224,11 @@ module Pickout
 			}
 		end
 
-		private def parse_request(line)
-			return unless line
-			return if line.empty?
+		private def parse_request(request)
+			return unless request
+			return if request.empty?
 
-			body = Hash(String, String | Int32 | Nil).from_json(line)
+			body = Hash(String, String | Int32 | Nil).from_json(request)
 			body unless body.empty?
 		end
 
